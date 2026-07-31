@@ -26,6 +26,7 @@ Output: one cosine similarity float per line
 # limitations under the License.
 
 import sys
+import os
 import numpy as np
 from pathlib import Path
 from numpy.linalg import norm
@@ -76,6 +77,13 @@ def main():
 
     if not pairs_path.exists():
         sys.exit(f"[harness] Error: test pairs not found: {pairs_path}")
+
+    # Keep the benchmark console owned by run_submission.py, consistent with
+    # ml-inference. This also suppresses InsightFace/onnxruntime diagnostics.
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull_fd, 1)
+    os.dup2(devnull_fd, 2)
+    os.close(devnull_fd)
 
     npz = np.load(pairs_path)
     n   = len(npz.files) // 2

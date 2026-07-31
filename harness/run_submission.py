@@ -53,11 +53,14 @@ def main():
     # 2. Client: key generation
     utils.run_exe_or_python(exec_dir, "client_key_generation", str(size))
     utils.log_step(2, "Key Generation")
-    utils.log_size(io_dir / "public_keys", "Public and evaluation keys")
 
     # 3. Server: model preprocessing
     utils.run_exe_or_python(exec_dir, "server_preprocess_model")
     utils.log_step(3, "Encrypted model preprocessing")
+    # Stage 2 compiles the circuit to generate its complete evaluation-key set,
+    # including rotation and bootstrapping keys. Measure after the one-time
+    # setup stages so partial key files are never reported.
+    utils.log_size(io_dir / "public_keys", "Public and evaluation keys")
 
     # One RNG seeded once — each run draws a different per-run seed from it.
     rng = np.random.default_rng(seed)

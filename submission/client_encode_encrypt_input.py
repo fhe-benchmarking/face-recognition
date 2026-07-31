@@ -26,8 +26,8 @@ def main():
 
     import orion
 
-    # Lightweight init: load scheme (PK needed for encryption) + read input_level.
-    init_orion_scheme(cfg, params, "load")
+    # Encryption uses the public key only — load it (not the secret key).
+    init_orion_scheme(cfg, params, "load", load_secret_key=False)
     input_level = int((params.iodir() / "public_keys" / "input_level.txt").read_text().strip())
 
     inter_dir = params.io_intermediate_dir()  # io/<size>/intermediate/

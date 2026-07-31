@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-server_preprocess_model.py — stub server preprocessing step.
+server_preprocess_model.py — server-side model preprocessing (stub).
 
-server_encrypted_compute compiles the pipeline in memory (io_mode=none),
-so the expensive fit+compile+save step is not needed here. The only downstream
-dependency is input_level.txt (read by client_encode_encrypt_input to set the
-encryption level), which equals len(LogQ) - 1 and can be read directly from
-the CKKS config.
-
-client_key_generation's keys.h5 (SK only) is sufficient for all downstream
-stages: server_encrypted_compute loads the SK and regenerates rotation keys
-and plaintext diagonals entirely in Go memory during its own compile step.
+The client (client_key_generation) generates the evaluation keys and compiles
+the model with io_mode=save — that step also produces the plaintext model
+diagonals. The server therefore has nothing to compute here; it only needs
+input_level.txt, which the client already wrote. This stub recomputes it from
+the CKKS config for robustness. The heavy work (loading the evaluation keys and
+diagonals) happens once in server_encrypted_compute via io_mode=load, without
+ever touching the secret key.
 """
 import sys
 import time
@@ -18,10 +16,11 @@ import yaml
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import load_submission_config, get_face_params, get_repo_root
+from common import load_submission_config, get_face_params, get_repo_root, mute_logs
 
 
 def main():
+    mute_logs()
     t0 = time.time()
     cfg = load_submission_config()
 
@@ -35,20 +34,18 @@ def main():
     keys_dir = params.iodir() / "public_keys"
 
     # Derive input_level from the CKKS config: len(LogQ) - 1.
-    with open(cfg["orion_config"]) as f:
-        orion_cfg = yaml.safe_load(f)
     try:
-        logq = orion_cfg["ckks_params"]["LogQ"]
+        with open(cfg["orion_config"]) as f:
+            logq = yaml.safe_load(f)["ckks_params"]["LogQ"]
     except KeyError as e:
         print(f"[server_preprocess_model] ERROR: missing key {e} in {cfg['orion_config']}", flush=True)
         sys.exit(1)
     input_level = len(logq) - 1
-
+    keys_dir.mkdir(parents=True, exist_ok=True)
     (keys_dir / "input_level.txt").write_text(str(input_level))
 
-    elapsed = time.time() - t0
     print(f"[server_preprocess_model] stub: input_level={input_level}  "
-          f"total={elapsed:.1f}s", flush=True)
+          f"total={time.time()-t0:.1f}s", flush=True)
 
 
 if __name__ == "__main__":

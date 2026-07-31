@@ -2,7 +2,7 @@
 """
 client_decrypt_decode.py — Decrypt score ciphertexts.
 
-Initializes orion with io_mode=load (loads SK from keys.h5), then decrypts
+Initializes orion with io_mode=load (loads SK from secret_key/sk.h5), then decrypts
 each p{i:04d}_score.bin and writes one similarity float per line to
 encrypted_model_predictions.txt.
 """

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-client_key_generation.py — FHE key generation.
+client_key_generation.py — FHE key generation + model preprocessing (client).
 
-Generates CKKS keys via orion.init_scheme(io_mode=save).
-Does NOT call fit or compile — server_encrypted_compute handles that.
-Also saves a fit_sample.npy for server_encrypted_compute to use.
+Runs client-side (holds the secret key): generates a fresh secret key and the
+full evaluation-key set (relin + all galois/bootstrapping keys) and compiles the
+model, persisting everything with io_mode=save. The secret key stays private in
+secret_key/; the evaluation keys a client would upload go to public_keys/; the
+plaintext model diagonals go to model_data/. The server never sees the secret
+key — it loads only the evaluation keys.
 """
 import sys
 import time
@@ -14,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     parse_stage_args,
-    load_detector, preprocess_one_image, init_orion_scheme,
+    load_detector, preprocess_one_image, build_pipeline_save,
     decode_master_image,
 )
 
@@ -50,14 +53,17 @@ def main():
     np.save(fit_path, fit_arr)
     print(f"[client_key_generation] fit_sample.npy saved ({len(patches)} patches) → {fit_path}", flush=True)
 
+    # Generate secret key + evaluation keys and compile the model (io_mode=save):
+    # sk -> secret_key/, evaluation keys -> public_keys/, diagonals -> model_data/.
     t_keygen = time.time()
-    init_orion_scheme(cfg, params, "save")
+    input_level = build_pipeline_save(cfg, params)
+    (keys_dir / "input_level.txt").write_text(str(input_level))
     elapsed_keygen = time.time() - t_keygen
 
     elapsed = time.time() - t0
-    print(f"[client_key_generation] CKKS keys saved in {elapsed_keygen:.1f}s  "
-          f"total={elapsed:.1f}s", flush=True)
-    print(f"[client_key_generation] Keys → {keys_dir / 'keys.h5'}", flush=True)
+    print(f"[client_key_generation] keys + model compiled in {elapsed_keygen:.1f}s  "
+          f"input_level={input_level}  total={elapsed:.1f}s", flush=True)
+    print(f"[client_key_generation] Eval keys → {keys_dir / 'keys.h5'}", flush=True)
 
 
 if __name__ == "__main__":

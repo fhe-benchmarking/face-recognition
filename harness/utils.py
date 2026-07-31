@@ -220,10 +220,18 @@ def save_run(path: Path, size: int = 0, iodir: Path = None):
     # Server-reported timing (fine-grained breakdown of stage 7) when available.
     server_reported = _read_server_reported(iodir) if iodir is not None else {}
     if server_reported:
+        print(f"         [submission] Server reported steps: {server_reported}")
+        for step_name, seconds in server_reported.items():
+            print(f"         [submission] {step_name}: {seconds}s")
         data["Server Reported"] = {
             k: (f"{v}s" if isinstance(v, (int, float)) else v)
             for k, v in server_reported.items()
         }
+    elif iodir is not None:
+        print(
+            "         [harness] Note: submitters can provide server timings at "
+            f"{iodir / 'server_reported.json'}"
+        )
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 

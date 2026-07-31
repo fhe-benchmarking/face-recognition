@@ -103,8 +103,8 @@ The harness drives the following sequence. Stages 2, 3, and 5–9 invoke the sub
 |-------|--------|-------------|
 | 0 | harness | Remove and re-create `io/<size>/` |
 | 1 | harness | Download (from Hugging Face if absent) and validate `datasets/face_dataset.npy` |
-| 2 | submission | `client_key_generation` — generate CKKS keys |
-| 3 | submission | `server_preprocess_model` — server preprocessing stub |
+| 2 | submission | `client_key_generation` — generate CKKS keys and persist circuit-specific evaluation keys/model data |
+| 3 | submission | `server_preprocess_model` — validate the persisted input level |
 | 4 | harness | `generate_input.py` — sample face pairs into `datasets/<size>/intermediate/` |
 | 5 | submission | `client_preprocess_input` — face alignment and patch extraction |
 | 6 | submission | `client_encode_encrypt_input` — encode and encrypt patches |
@@ -122,9 +122,11 @@ Stages 4–10 repeat for each `--num_runs` iteration.
 | `datasets/face_dataset.npy` | Hugging Face (`halmsu/celeba-1024-pairs`) | harness stage 1, 4 |
 | `datasets/<size>/intermediate/test_pairs.npz` | harness stage 4 | submission stage 5 |
 | `datasets/<size>/intermediate/test_labels.txt` | harness stage 4 | harness stage 10 |
+| `io/<size>/secret_key/sk.h5` | submission stage 2 | client stage 8 only |
 | `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 6, 7, 8 |
+| `io/<size>/model_data/diagonals.h5` | submission stage 2 | server stage 7 |
 | `io/<size>/public_keys/fit_sample.npy` | submission stage 2 | submission stage 7 |
-| `io/<size>/public_keys/input_level.txt` | submission stage 3 | submission stage 6 |
+| `io/<size>/public_keys/input_level.txt` | submission stage 2 (validated by stage 3) | submission stage 6 |
 | `io/<size>/intermediate/*.npy` | submission stage 5 | submission stage 6 |
 | `io/<size>/ciphertexts_upload/*.bin` | submission stage 6 | submission stage 7 |
 | `io/<size>/ciphertexts_download/*.bin` | submission stage 7 | submission stage 8 |

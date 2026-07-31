@@ -1,3 +1,4 @@
+import os
 import sys
 import yaml
 import time
@@ -17,6 +18,19 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 def get_repo_root() -> Path:
     """Return the repository root directory."""
     return _REPO_ROOT
+
+
+def mute_logs() -> None:
+    """Silence a submission stage's output, matching the ml-inference reference.
+
+    Redirects stdout and stderr (file descriptors 1 and 2) to /dev/null, which
+    also suppresses native-library chatter and Python warnings. Harness logging
+    remains visible because the stage runs in a separate process.
+    """
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull_fd, 1)
+    os.dup2(devnull_fd, 2)
+    os.close(devnull_fd)
 
 
 def _resolve_checkpoint(cfg: dict) -> str:
@@ -88,6 +102,7 @@ def parse_stage_args() -> tuple:
         script = Path(sys.argv[0]).stem
         print(f"Usage: {script} <size>", flush=True)
         sys.exit(1)
+    mute_logs()
     size = int(sys.argv[1])
     cfg = load_submission_config()
     params = get_face_params(size)
@@ -195,22 +210,38 @@ def load_detector():
     return app
 
 
-def init_orion_scheme(cfg: dict, params, io_mode: str) -> None:
+def init_orion_scheme(cfg: dict, params, io_mode: str,
+                      load_secret_key: bool = True) -> None:
     """
     Load orion config yaml, set io_mode and key/diag paths, call orion.init_scheme().
+
+    Key material is split so it mirrors a practical client/server split:
+      - secret_key/sk.h5     — the secret key (private; client only)
+      - public_keys/keys.h5  — the evaluation keys (relin + galois) a client
+                               uploads to the server
+      - model_data/diagonals.h5 — the plaintext model diagonals
 
     Args:
         cfg:     submission config dict (from load_submission_config)
         params:  InstanceParams (provides iodir())
-        io_mode: "save" (generates keys) or "load" (reads existing keys)
+        io_mode: "save" (generates + persists keys) or "load" (reads them)
+        load_secret_key: if False (server side), the secret key is neither loaded
+                 nor used — only the evaluation keys are.
     """
     import orion
-    keys_dir = params.iodir() / "public_keys"
+    keys_dir  = params.iodir() / "public_keys"       # evaluation keys (relin + galois)
+    sk_dir    = params.iodir() / "secret_key"        # private secret key (client only)
+    model_dir = params.iodir() / "model_data"        # plaintext model diagonals
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    sk_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
     with open(cfg["orion_config"]) as f:
         config = yaml.safe_load(f)
-    config["orion"]["io_mode"] = io_mode
-    config["orion"]["diags_path"] = str((keys_dir / "diagonals.h5").resolve())
+    config["orion"]["io_mode"]  = io_mode
+    config["orion"]["diags_path"] = str((model_dir / "diagonals.h5").resolve())
     config["orion"]["keys_path"]  = str((keys_dir / "keys.h5").resolve())
+    config["orion"]["sk_path"]    = str((sk_dir / "sk.h5").resolve())
+    config["orion"]["load_secret_key"] = load_secret_key
     orion.init_scheme(config)
 
 
@@ -228,14 +259,60 @@ def load_fit_patches(params) -> list:
     return [torch.from_numpy(arr[k].copy()) for k in range(arr.shape[0])]
 
 
+def _build_model_pipeline(cfg: dict):
+    """Construct the CryptoFace model and per-image Orion pipeline (shared by the
+    save and load paths). Returns (model, pipeline)."""
+    a, b, c = cfg["l2_poly_coeffs"]
+    model = CryptoFaceNet(cfg["input_size"], l2_norm_coeffs=(a, b, c))
+    load_cryptoface_checkpoint(model, cfg["ckpt_path"])
+    for net in model.nets:
+        net.init_orion_params()
+    pipeline = PerImagePipeline(
+        backbones=model.nets,
+        linears=model.linear,
+        normalization=model.normalization,
+    )
+    pipeline.eval()
+    return model, pipeline
+
+
+def build_pipeline_save(cfg: dict, params) -> int:
+    """
+    Client key generation + model preprocessing (run once): generate a fresh
+    secret key and the full evaluation-key set (relin + all galois/rotation keys,
+    including the bootstrapping keys), and compile with io_mode=save so those keys
+    plus the plaintext model diagonals are persisted. The secret key is written
+    to the private secret_key/ file; the evaluation keys (what a client uploads)
+    go to public_keys/; the diagonals go to model_data/.
+
+    Runs client-side because generating the rotation keys requires the secret key.
+    server_preprocess_model / build_pipeline_load then load the evaluation keys
+    without ever touching the secret key.
+
+    Returns: input_level
+    """
+    import orion
+
+    t0 = time.time()
+    model, pipeline = _build_model_pipeline(cfg)
+
+    # io_mode=save: generate + persist sk, relin, galois, and diagonals.
+    init_orion_scheme(cfg, params, "save")
+
+    fit_patches = load_fit_patches(params)
+    orion.fit(pipeline, fit_patches)
+    input_level = orion.compile(pipeline)
+    print(f"[common] build_pipeline_save (compile io_mode=save) done in "
+          f"{time.time()-t0:.1f}s  input_level={input_level}", flush=True)
+    return input_level
+
+
 def build_pipeline_load(cfg: dict, params) -> tuple:
     """
-    Load orion pipeline from saved keys; compile diagonals in memory.
-
-    Loads the SK from HDF5 (io_mode=load) then switches to io_mode=none before
-    compile, so plaintext diagonals and rotation keys are recomputed entirely in
-    Go memory. This avoids the ~30-min preload_all overhead while using the same
-    SK as the ciphertexts produced by client_encode_encrypt_input.
+    Load the Orion pipeline entirely from disk (io_mode=load), using only the
+    public/evaluation keys and plaintext diagonals persisted by
+    build_pipeline_save. compile() reads them from HDF5 instead of recomputing;
+    preload_all() brings them into memory. The secret key is never loaded.
 
     Returns: (pipeline, input_level, embedding_dim, n_patches)
     """
@@ -244,34 +321,17 @@ def build_pipeline_load(cfg: dict, params) -> tuple:
 
     t0 = time.time()
 
-    a, b, c = cfg["l2_poly_coeffs"]
+    model, pipeline = _build_model_pipeline(cfg)
 
-    # Load model with submission-specified coefficients
-    model = CryptoFaceNet(cfg["input_size"], l2_norm_coeffs=(a, b, c))
-    load_cryptoface_checkpoint(model, cfg["ckpt_path"])
-    for net in model.nets:
-        net.init_orion_params()
-
-    pipeline = PerImagePipeline(
-        backbones=model.nets,
-        linears=model.linear,
-        normalization=model.normalization,
-    )
-    pipeline.eval()
-
-    # Always load SK from HDF5 so it matches the ciphertexts produced by client_encode_encrypt_input.
-    init_orion_scheme(cfg, params, "load")
-
-    # Switch to in-memory mode: SK is already loaded above.
-    # Compile now recomputes plaintext diagonals and rotation keys entirely
-    # in Go memory — no HDF5 reads for diagonals, no preload_all needed.
-    print("[common] switching to io_mode=none for compile", flush=True)
-    _scheme.params.orion_params.io_mode = "none"
-    _scheme.lt_evaluator.io_mode = "none"
+    # Server side: load only the evaluation keys (relin + galois) and plaintext
+    # diagonals from disk — never the secret key (load_secret_key=False). compile()
+    # reads them from HDF5 instead of recomputing (~25 min) on every run.
+    init_orion_scheme(cfg, params, "load", load_secret_key=False)
 
     fit_patches = load_fit_patches(params)
     orion.fit(pipeline, fit_patches)
     input_level = orion.compile(pipeline)
+    _scheme.lt_evaluator.preload_all(pipeline)
 
     pipeline.he()
 

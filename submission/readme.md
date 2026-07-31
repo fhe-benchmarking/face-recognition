@@ -6,12 +6,10 @@ under **RNS-CKKS**, using the [Orion](https://github.com/vboddeti/orion) compile
 with the [Lattigo](https://github.com/tuneinsight/lattigo) backend.
 
 The server evaluates CryptoFace on encrypted patches and returns an encrypted
-similarity score. Orion's current key-persistence API serializes the secret key
-and reloads it in each stage process, so this single-machine benchmark is not a
-production client/server trust boundary: the stage-7 process can access
-`keys.h5`, even though production evaluation disables Orion debug mode and never
-calls decryption. A deployed service must extend Orion to serialize and load
-public/evaluation keys independently while keeping the secret key client-side.
+similarity score. Key material is separated by role: the client keeps
+`secret_key/sk.h5`, while the server receives `public_keys/keys.h5` containing
+only the public, relinearization, rotation, and bootstrapping evaluation keys.
+The server process initializes Orion with `load_secret_key=False`.
 
 ---
 
@@ -71,11 +69,11 @@ The submission implements the harness's client/server stages (`submission/*.py`)
 
 | Stage | Script | Role |
 |------:|--------|------|
-| 2 | `client_key_generation` | Generates the Orion secret-key file and fit sample used by the benchmark stage processes. |
-| 3 | `server_preprocess_model` | Harness-compatible preprocessing stub; model compilation is performed once at the start of stage 7. |
+| 2 | `client_key_generation` | Generates the private secret key, circuit-specific public/evaluation keys, and persisted model diagonals. |
+| 3 | `server_preprocess_model` | Harness-compatible validation of the persisted input level. |
 | 5 | `client_preprocess_input` | Client aligns each face (InsightFace) and extracts the 32×32 patches. |
 | 6 | `client_encode_encrypt_input` | Client CKKS-encodes and encrypts the patch tensors. |
-| 7 | `server_encrypted_compute` | Server compiles/loads the Orion circuit once, evaluates encrypted pairs with bounded process lifetimes, and returns encrypted scores. |
+| 7 | `server_encrypted_compute` | Server loads the Orion circuit and evaluation keys without the secret key, evaluates encrypted pairs with bounded process lifetimes, and returns encrypted scores. |
 | 8 | `client_decrypt_decode` | Client decrypts the scalar similarity scores. |
 
 `server_encrypted_compute` compiles the pipeline once and pre-forks five
@@ -124,10 +122,8 @@ secret (`H = 192`) is the Lattigo bootstrapping default and is accounted for in
 Lattigo's security estimate (which considers sparse-secret / hybrid attacks);
 the resulting parameter set targets **≥128 bits** of classical security.
 
-This parameter-security claim concerns the CKKS/Ring-LWE primitive. It does not
-remove the process-isolation limitation above: access to the serialized secret
-key bypasses cryptographic security entirely, so `keys.h5` must not be exposed
-to an untrusted server in a production deployment.
+The serialized secret key is confined to `io/<size>/secret_key/`; it is not
+stored in `public_keys/keys.h5` or loaded by the encrypted server stage.
 
 ---
 
