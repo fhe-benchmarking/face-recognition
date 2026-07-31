@@ -42,7 +42,7 @@ def calculate_face_metrics(gt_labels_file: Path, scores_file: Path, tag: str) ->
 
     Returns:
         dict with keys: eer, tar_far_1_percent, tar_far_01_percent
-        Returns empty dict if fewer than 2 pairs.
+        For a single pair, returns its score and ground-truth label instead.
     """
     labels = [int(l.strip()) for l in Path(gt_labels_file).read_text().strip().splitlines() if l.strip()]
     scores = [float(s.strip()) for s in Path(scores_file).read_text().strip().splitlines() if s.strip()]
@@ -63,7 +63,7 @@ def calculate_face_metrics(gt_labels_file: Path, scores_file: Path, tag: str) ->
         return {}
     if n < 2:
         print(f"[harness] {tag}: score={scores[0]:.6f}  label={labels[0]}")
-        return {}
+        return {"score": scores[0], "label": labels[0]}
 
     labels = np.array(labels, dtype=bool)
     scores = np.array(scores, dtype=float)

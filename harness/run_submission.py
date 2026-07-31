@@ -132,6 +132,7 @@ def main():
         # A single pair cannot produce verification metrics; upstream omits the
         # plaintext quality stages for this smoke-test variant.
         if size == 0:
+            utils.log_quality(metrics_enc, "Encrypted model quality")
             run_path.parent.mkdir(parents=True, exist_ok=True)
             utils.save_run(run_path, size, iodir=io_dir)
             continue

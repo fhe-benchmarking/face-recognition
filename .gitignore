@@ -51,6 +51,7 @@ network-with-levels.png
 virtualenv
 
 # Datasets, queries and results since we generate them on the fly
+data/
 datasets/*
 # But keep the folder alive with this one file, since some submissions might have fixed datasets
 !datasets/.gitkeep

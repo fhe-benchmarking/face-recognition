@@ -34,8 +34,9 @@ Each `results-*.json` follows the FHE-benchmarking measurement schema:
   `Result decryption`, …), plus `Total`.
 - **`Bandwidth`** — sizes of `Public and evaluation keys`, `Encrypted input`,
   `Encrypted results`.
-- **`Quality`** (sizes > single) — `Encrypted model quality` and
-  `Harness model quality`, each reporting `eer`, `tar_at_far_1pct`,
+- **`Quality`** — for single inference, the encrypted similarity `score` and
+  ground-truth `label`; for batched inference, `Encrypted model quality` and
+  `Harness model quality`, each reporting `eer`, `tar_at_far_1pct`, and
   `tar_at_far_01pct`.
 - **`Server Reported`** — the server's own timing, isolating the pure
   `Encrypted computation` from pipeline/key-loading setup and reporting the
@@ -44,3 +45,7 @@ Each `results-*.json` follows the FHE-benchmarking measurement schema:
 The `Quality` block also contains the encrypted-minus-ArcFace metric gaps. A
 batched run passes the quality criterion when its encrypted EER is no more than
 0.15 above the ArcFace EER on the same sampled pairs.
+
+Run `uv run python website/generate_results.py` after measurements change.
+The generator averages timing and batched quality fields across all
+`results-*.json` files and publishes every field described above.

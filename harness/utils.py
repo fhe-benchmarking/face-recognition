@@ -9,7 +9,7 @@ Provides:
   - run_exe_or_python():          run a stage as Python script or compiled binary
   - log_step():                   print per-stage elapsed time
   - log_size():                   print and record directory sizes
-  - log_quality():                record quality metrics (EER, TAR@FAR)
+  - log_quality():                record a single score or EER/TAR@FAR metrics
   - save_run():                   write per-run JSON results to measurements/
   - reset_run_state():            clear accumulated per-run state between runs
 """
@@ -190,11 +190,9 @@ def _read_server_reported(iodir: Path) -> dict:
 
 def save_run(path: Path, size: int = 0, iodir: Path = None):
     """
-    Write per-run timing, bandwidth, and (for instance sizes > 0) quality metrics
+    Write per-run timing, bandwidth, and quality metrics
     to a JSON file at the given path, using the ml-inference measurement schema:
     top-level Timing / Bandwidth / Quality / Server Reported keys.
-    Size 0 (single-pair smoke test) omits Quality.
-
     One-time stage timings (key generation, model preprocessing) captured before
     the per-run loop are included in each run's Timing block. Timing["Total"] is
     the sum of one-time and per-run stage latencies.
@@ -214,7 +212,7 @@ def save_run(path: Path, size: int = 0, iodir: Path = None):
         "Timing": timing,
         "Bandwidth": {**_onetime_bandwidth, **_bandwidth},
     }
-    if size > 0:
+    if _model_quality:
         data["Quality"] = _model_quality
 
     # Server-reported timing (fine-grained breakdown of stage 7) when available.
@@ -238,9 +236,15 @@ def save_run(path: Path, size: int = 0, iodir: Path = None):
     print("[total latency]", f"{total}s")
 
 def log_quality(metrics: dict, tag: str):
-    """Store quality metrics returned by calculate_face_metrics() in the global quality dict."""
+    """Store a single score or verification metrics in the quality block."""
     global _model_quality
     if not metrics:
+        return
+    if "score" in metrics:
+        _model_quality[tag] = {
+            "score": metrics["score"],
+            "label": metrics["label"],
+        }
         return
     _model_quality[tag] = {
         "eer":              metrics["eer"],
