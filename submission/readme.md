@@ -69,10 +69,10 @@ The submission implements the harness's client/server stages (`submission/*.py`)
 
 | Stage | Script | Role |
 |------:|--------|------|
-| 2 | `client_key_generation` | Generates the private secret key, circuit-specific public/evaluation keys, and persisted model diagonals. |
-| 3 | `server_preprocess_model` | Harness-compatible validation of the persisted input level. |
+| 2 | `client_key_generation` | Generates the private and public/evaluation keys from the checked-in circuit manifest. It neither resolves nor loads the checkpoint. |
+| 3 | `server_preprocess_model` | Loads the checkpoint on the server, compiles and packs model diagonals, validates the circuit manifest, and writes a hashed persistent cache. |
 | 5 | `client_preprocess_input` | Client aligns each face (InsightFace) and extracts the 32×32 patches. |
-| 6 | `client_encode_encrypt_input` | Client CKKS-encodes and encrypts the patch tensors. |
+| 6 | `client_encode_encrypt_input` | Client CKKS-encodes and encrypts patch tensors into versioned HDF5 ciphertext files. |
 | 7 | `server_encrypted_compute` | Server loads the Orion circuit and evaluation keys without the secret key, evaluates encrypted pairs with bounded process lifetimes, and returns encrypted scores. |
 | 8 | `client_decrypt_decode` | Client decrypts the scalar similarity scores. |
 
@@ -89,7 +89,18 @@ memory headroom is required. The setting is `cryptoface.pair_slots` in
 `config.yml`.
 
 The stage writes `io/<size>/server_reported.json` with encrypted-compute wall
-time, pipeline setup, and backbone/normalization/inner-product timing.
+time, packed-model I/O, ciphertext I/O, and separate encrypted-inference
+worker time for the backbone, normalization, and inner product.
+Wall-time and summed-worker-time fields are explicitly classified in that
+report. The harness separately reports offline setup, online evaluation, and
+combined totals.
+
+Model artifacts are stored once under `io/server_data/<cache-key>/`; the key
+covers the checkpoint, Orion configuration, circuit manifest, and Orion commit.
+Each key/model cache has a completeness manifest with file sizes and SHA-256
+hashes. `io/<size>/provenance.json` records these revisions and hashes together
+with the dataset hash, pair-slot count, and aggregator lifetime. Client/server
+ciphertext exchange uses Orion's non-executable HDF5 format rather than pickle.
 
 ---
 

@@ -30,6 +30,8 @@ import sys
 import subprocess
 import argparse
 import json
+import os
+import platform
 from datetime import datetime
 from pathlib import Path
 from params import InstanceParams, SINGLE, LARGE
@@ -140,6 +142,64 @@ def log_size(path: Path, object_name: str, flag: bool = False, previous: int = 0
     _bandwidth[object_name] = human_readable_size(size)
     return size
 
+
+def log_submission_reported(iodir: Path):
+    """Record optional, submission-defined artifact sizes via a generic schema."""
+    global _bandwidth
+    path = iodir / "submission_reported.json"
+    if not path.exists():
+        return
+    try:
+        reported = json.loads(path.read_text())
+        bandwidth = reported.get("Bandwidth", {})
+        if not isinstance(bandwidth, dict):
+            raise ValueError("Bandwidth must be an object")
+        for name, byte_count in bandwidth.items():
+            if not isinstance(name, str) or not isinstance(byte_count, int):
+                raise ValueError("Bandwidth entries must map strings to integer bytes")
+            if byte_count < 0:
+                raise ValueError("Bandwidth byte counts must be non-negative")
+            value = human_readable_size(byte_count)
+            _bandwidth[name] = value
+            print(f"         [submission] {name} size: {value}")
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        raise ValueError(f"Invalid submission report {path}: {exc}") from exc
+
+
+def _machine_provenance() -> dict:
+    cpu_model = platform.processor() or "unknown"
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.lower().startswith("model name"):
+                cpu_model = line.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    page_size = os.sysconf("SC_PAGE_SIZE")
+    physical_pages = os.sysconf("SC_PHYS_PAGES")
+    return {
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "cpu_model": cpu_model,
+        "logical_cpu_count": os.cpu_count(),
+        "memory_bytes": page_size * physical_pages,
+    }
+
+
+def _submission_provenance(iodir: Path | None) -> dict:
+    if iodir is None:
+        return {}
+    path = iodir / "provenance.json"
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError(f"Invalid submission provenance {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"Submission provenance must be an object: {path}")
+    return value
+
 def run_exe_or_python(base, file_name, *args, check=True):
     """
     If {base}/{file_name}.py exists, run it with the current Python interpreter.
@@ -205,8 +265,16 @@ def save_run(path: Path, size: int = 0, iodir: Path = None):
     global _onetime_bandwidth
     global _model_quality
 
-    total = round(sum(_onetime_timestamps.values()) + sum(_timestamps.values()), 4)
-    timing = {**_onetime_timestampsStr, **_timestampsStr, "Total": f"{total}s"}
+    offline_total = round(sum(_onetime_timestamps.values()), 4)
+    online_total = round(sum(_timestamps.values()), 4)
+    total = round(offline_total + online_total, 4)
+    timing = {
+        **_onetime_timestampsStr,
+        **_timestampsStr,
+        "Offline setup total": f"{offline_total}s",
+        "Online evaluation total": f"{online_total}s",
+        "Total": f"{total}s",
+    }
 
     data = {
         "Timing": timing,
@@ -214,6 +282,10 @@ def save_run(path: Path, size: int = 0, iodir: Path = None):
     }
     if _model_quality:
         data["Quality"] = _model_quality
+    data["Provenance"] = {
+        "Harness environment": _machine_provenance(),
+        "Submission": _submission_provenance(iodir),
+    }
 
     # Server-reported timing (fine-grained breakdown of stage 7) when available.
     server_reported = _read_server_reported(iodir) if iodir is not None else {}

@@ -57,10 +57,9 @@ def main():
     # 3. Server: model preprocessing
     utils.run_exe_or_python(exec_dir, "server_preprocess_model")
     utils.log_step(3, "Encrypted model preprocessing")
-    # Stage 2 compiles the circuit to generate its complete evaluation-key set,
-    # including rotation and bootstrapping keys. Measure after the one-time
-    # setup stages so partial key files are never reported.
+    # Measure benchmark-standard keys plus optional generic submission artifacts.
     utils.log_size(io_dir / "public_keys", "Public and evaluation keys")
+    utils.log_submission_reported(io_dir)
 
     # One RNG seeded once — each run draws a different per-run seed from it.
     rng = np.random.default_rng(seed)
@@ -126,7 +125,8 @@ def main():
         # Validate score count, labels, and finiteness for every size. A single
         # pair has no meaningful verification metric, so this returns {} there.
         metrics_enc = calculate_face_metrics(
-            gt_labels, encrypted_scores, "Encrypted model quality"
+            gt_labels, encrypted_scores, "Encrypted model quality",
+            expected_count=params.get_batch_size(),
         )
 
         # A single pair cannot produce verification metrics; upstream omits the
@@ -154,7 +154,10 @@ def main():
         utils.log_quality(metrics_enc, "Encrypted model quality")
 
         # 10.3: Metrics for ArcFace reference
-        metrics_clr = calculate_face_metrics(gt_labels, harness_scores, "Harness model quality")
+        metrics_clr = calculate_face_metrics(
+            gt_labels, harness_scores, "Harness model quality",
+            expected_count=params.get_batch_size(),
+        )
         utils.log_quality(metrics_clr, "Harness model quality")
 
         comparison = compare_to_arcface(metrics_enc, metrics_clr)

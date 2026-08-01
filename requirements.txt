@@ -18,4 +18,4 @@ onnxruntime>=1.24.2
 huggingface_hub>=0.24
 
 # Orion FHE framework (required by the CryptoFace reference submission)
-orion @ git+https://github.com/vboddeti/orion.git@41f577f1d055c31352cc125391cfd5a41bf3ef5a
+orion @ git+https://github.com/vboddeti/orion.git@7e27281354f9ac5ffd0cf4330fee2bbea75a9dc7

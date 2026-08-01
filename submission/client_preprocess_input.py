@@ -17,7 +17,7 @@ from common import (
 
 
 def main():
-    size, cfg, params = parse_stage_args()
+    size, cfg, params = parse_stage_args(resolve_checkpoint=False)
 
     pairs_path = params.get_test_input_file()  # datasets/<size>/intermediate/test_pairs.npz
     if not pairs_path.exists():
@@ -26,6 +26,10 @@ def main():
 
     npz = np.load(pairs_path)
     n_pairs = len(npz.files) // 2  # each pair has img0 + img1
+    if n_pairs != params.get_batch_size():
+        raise ValueError(
+            f"Expected {params.get_batch_size()} input pairs, found {n_pairs}"
+        )
 
     out_dir = params.io_intermediate_dir()  # io/<size>/intermediate/
     out_dir.mkdir(parents=True, exist_ok=True)

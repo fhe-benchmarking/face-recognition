@@ -34,24 +34,30 @@
         <table id="resultsTable" class="display">
             <thead>
                 <tr>
-                    <th colspan="5">Submitter</th>
-                    <th colspan="3">Bandwidth</th>
+                    <th colspan="8">Submitter</th>
+                    <th colspan="4">Bandwidth</th>
                     <th colspan="2">Quality</th>
-                    <th colspan="12">Timing (harness)</th>
-                    <th colspan="7">Timing (server)</th>
+                    <th colspan="14">Timing (harness)</th>
+                    <th colspan="12">Timing (server)</th>
                 </tr>
                 <tr>
                     <th class="submitter-header">Name</th>
                     <th class="submitter-header">Date</th>
-                    <th class="submitter-header">Env</th>
+                    <th class="submitter-header">CPU</th>
+                    <th class="submitter-header">RAM</th>
+                    <th class="submitter-header">Orion</th>
+                    <th class="submitter-header">Slots</th>
                     <th class="submitter-header">R/L</th>
                     <th class="submitter-header">Runs</th>
                     <th class="bandwidth-header">Keys</th>
+                    <th class="bandwidth-header">Model</th>
                     <th class="bandwidth-header">Input</th>
                     <th class="bandwidth-header">Result</th>
                     <th class="quality-header">Score(s)</th>
                     <th class="quality-header">Label(s)</th>
                     <th class="harness-timing-header">Total</th>
+                    <th class="harness-timing-header">Offline setup</th>
+                    <th class="harness-timing-header">Online evaluation</th>
                     <th class="harness-timing-header">Dataset</th>
                     <th class="harness-timing-header">Keygen</th>
                     <th class="harness-timing-header">Model prep</th>
@@ -63,9 +69,14 @@
                     <th class="harness-timing-header">Postprocess</th>
                     <th class="harness-timing-header">ArcFace</th>
                     <th class="harness-timing-header">Quality</th>
-                    <th class="server-timing-header">Total</th>
-                    <th class="server-timing-header">Setup</th>
-                    <th class="server-timing-header">Compute</th>
+                    <th class="server-timing-header">Total (wall)</th>
+                    <th class="server-timing-header">Setup (wall)</th>
+                    <th class="server-timing-header">Model I/O</th>
+                    <th class="server-timing-header">Runtime compile</th>
+                    <th class="server-timing-header">Input I/O (worker)</th>
+                    <th class="server-timing-header">Transport (worker)</th>
+                    <th class="server-timing-header">Inference (worker)</th>
+                    <th class="server-timing-header">Compute (wall)</th>
                     <th class="server-timing-header">Backbones (worker)</th>
                     <th class="server-timing-header">Normalize (worker)</th>
                     <th class="server-timing-header">Inner product (worker)</th>
@@ -75,34 +86,45 @@
             <tbody>
                 <tr>
                     <td><a href="https://github.com/fhe-benchmarking/face-recognition">CryptoFace</a></td>
-                    <td>2026-07-31 16:06:26</td>
-                    <td>CPU</td>
+                    <td>2026-07-31</td>
+                    <td>AMD EPYC 7502 32-Core Processor</td>
+                    <td>1007.7 GiB</td>
+                    <td>7e27281354f9</td>
+                    <td>5</td>
                     <td>L</td>
                     <td>1</td>
                     <td>28.8G</td>
-                    <td>128.0M</td>
+                    <td>114.1G</td>
+                    <td>128.1M</td>
                     <td>1.0M</td>
-                    <td>0.588811</td>
+                    <td>0.588810</td>
                     <td>1</td>
-                    <td>1.207h</td>
-                    <td>385.2ms</td>
-                    <td>46.783m</td>
-                    <td>5.874s</td>
-                    <td>330.2ms</td>
-                    <td>10.063s</td>
-                    <td>9.380s</td>
-                    <td>25.075m</td>
-                    <td>7.123s</td>
-                    <td>22.6ms</td>
+                    <td>35.974m</td>
+                    <td>9.654m</td>
+                    <td>26.320m</td>
+                    <td>295.4ms</td>
+                    <td>7.608m</td>
+                    <td>2.041m</td>
+                    <td>380.5ms</td>
+                    <td>8.178s</td>
+                    <td>32.863s</td>
+                    <td>24.456m</td>
+                    <td>1.173m</td>
+                    <td>27.1ms</td>
                     <td>-</td>
                     <td>-</td>
-                    <td>24.679m</td>
-                    <td>19.827m</td>
-                    <td>4.707m</td>
-                    <td>20.443m</td>
-                    <td>2.031s</td>
-                    <td>368.6ms</td>
-                    <td>4.707m</td>
+                    <td>24.084m</td>
+                    <td>19.658m</td>
+                    <td>11.497m</td>
+                    <td>8.104m</td>
+                    <td>909.3ms</td>
+                    <td>382.7ms</td>
+                    <td>20.636m</td>
+                    <td>4.245m</td>
+                    <td>20.596m</td>
+                    <td>2.089s</td>
+                    <td>356.3ms</td>
+                    <td>4.245m</td>
                 </tr>
             </tbody>
         </table>

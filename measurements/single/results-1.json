@@ -1,34 +1,89 @@
 {
   "Timing": {
-    "Test dataset generation": "0.3852s",
-    "Key Generation": "2806.9507s",
-    "Encrypted model preprocessing": "5.8741s",
-    "Input generation": "0.3302s",
-    "Input preprocessing": "10.0628s",
-    "Input encryption": "9.3805s",
-    "Encrypted computation": "1504.4985s",
-    "Result decryption": "7.1231s",
-    "Result postprocessing": "0.0226s",
-    "Total": "4344.6278s"
+    "Test dataset generation": "0.2954s",
+    "Key Generation": "456.5029s",
+    "Encrypted model preprocessing": "122.4592s",
+    "Input generation": "0.3805s",
+    "Input preprocessing": "8.1777s",
+    "Input encryption": "32.8632s",
+    "Encrypted computation": "1467.3848s",
+    "Result decryption": "70.3684s",
+    "Result postprocessing": "0.0271s",
+    "Offline setup total": "579.2575s",
+    "Online evaluation total": "1579.2018s",
+    "Total": "2158.4593s"
   },
   "Bandwidth": {
     "Public and evaluation keys": "28.8G",
-    "Encrypted input": "128.0M",
+    "Packed model": "114.1G",
+    "Encrypted input": "128.1M",
     "Encrypted results": "1.0M"
   },
   "Quality": {
     "Encrypted model quality": {
-      "score": 0.588811,
+      "score": 0.58881,
       "label": 1
     }
   },
+  "Provenance": {
+    "Harness environment": {
+      "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+      "python": "3.12.12",
+      "cpu_model": "AMD EPYC 7502 32-Core Processor",
+      "logical_cpu_count": 128,
+      "memory_bytes": 1082015236096
+    },
+    "Submission": {
+      "schema_version": 1,
+      "model": {
+        "hf_repo": "halmsu/cryptoface-v1",
+        "hf_file": "backbone-64x64.ckpt",
+        "sha256": "e5b54e31c392959f79715aefe056aa8428a637f7196512fb3fded10d369dbe9c"
+      },
+      "dataset": {
+        "hf_repo": "halmsu/celeba-1024-pairs",
+        "data_sha256": "51c6b80e5bbffa32c17ed436aa9a5c928d2e9e673a986599ffb2199c827b12a1",
+        "labels_sha256": "57f975ce8b9f3811f2c503aa68ab69cf4deaacdce089c7f5a5e68adda143e27e"
+      },
+      "orion_commit": "7e27281354f9ac5ffd0cf4330fee2bbea75a9dc7",
+      "orion_config_sha256": "874c289aad1508142e26d3ec2154e31a27dda604342d93b4ca4f7fd127b6e84f",
+      "circuit_manifest_sha256": "0d4bc5f2f33d342407e4f1b66ef1eab97ad64d0b0735b6858661b55d98bdfa1f",
+      "pair_slots": 5,
+      "aggregator_max_pairs": 10,
+      "packed_model_sha256": "fc530f9276e1c85c8a3cf953597cc71610d3810ab021900b2669c1ca3c6691ab",
+      "packed_model_size_bytes": 122467924698
+    }
+  },
   "Server Reported": {
-    "Encrypted computation": "282.4047s",
-    "Total": "1480.768s",
-    "Pipeline load and key setup": "1189.6203s",
-    "Backbone forward worker-seconds": "1226.5806s",
-    "Normalization worker-seconds": "2.0312s",
-    "Inner product worker-seconds": "0.3686s",
-    "Mean encrypted wall time per pair": "282.4047s"
+    "Encrypted computation": "254.6741s",
+    "Total": "1445.0687s",
+    "Pipeline load and key setup": "1179.5058s",
+    "Packed model I/O": "689.8004s",
+    "Runtime circuit compilation": "486.2418s",
+    "Ciphertext input I/O worker-seconds": "0.9093s",
+    "Ciphertext transport worker-seconds": "0.3827s",
+    "Encrypted inference worker-seconds": "1238.1855s",
+    "Backbone forward worker-seconds": "1235.7398s",
+    "Normalization worker-seconds": "2.0893s",
+    "Inner product worker-seconds": "0.3563s",
+    "Mean encrypted wall time per pair": "254.6741s",
+    "Timing semantics": {
+      "wall_time": [
+        "Encrypted computation",
+        "Total",
+        "Pipeline load and key setup",
+        "Packed model I/O",
+        "Runtime circuit compilation",
+        "Mean encrypted wall time per pair"
+      ],
+      "summed_worker_time": [
+        "Ciphertext input I/O worker-seconds",
+        "Ciphertext transport worker-seconds",
+        "Encrypted inference worker-seconds",
+        "Backbone forward worker-seconds",
+        "Normalization worker-seconds",
+        "Inner product worker-seconds"
+      ]
+    }
   }
 }

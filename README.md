@@ -124,14 +124,23 @@ Stages 4–10 repeat for each `--num_runs` iteration.
 | `datasets/<size>/intermediate/test_labels.txt` | harness stage 4 | harness stage 10 |
 | `io/<size>/secret_key/sk.h5` | submission stage 2 | client stage 8 only |
 | `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 6, 7, 8 |
-| `io/<size>/model_data/diagonals.h5` | submission stage 2 | server stage 7 |
-| `io/<size>/public_keys/fit_sample.npy` | submission stage 2 | submission stage 7 |
-| `io/<size>/public_keys/input_level.txt` | submission stage 2 (validated by stage 3) | submission stage 6 |
+| `submission/circuit_manifest.json` | submission | client stage 2, server stages 3 and 7 |
+| `io/<size>/public_keys/input_level.txt` | client stage 2 | client stage 6 |
+| `io/server_data/<cache-key>/diagonals.h5` | server stage 3 | server stage 7 |
+| `io/<size>/server_model.json` | server stage 3 | harness, server stage 7 |
+| `io/<size>/submission_reported.json` | optional submission metadata | harness |
+| `io/<size>/provenance.json` | optional submission provenance | harness/results website |
 | `io/<size>/intermediate/*.npy` | submission stage 5 | submission stage 6 |
-| `io/<size>/ciphertexts_upload/*.bin` | submission stage 6 | submission stage 7 |
-| `io/<size>/ciphertexts_download/*.bin` | submission stage 7 | submission stage 8 |
+| `io/<size>/ciphertexts_upload/*.h5` | client stage 6 | server stage 7 |
+| `io/<size>/ciphertexts_download/*.h5` | server stage 7 | client stage 8 |
 | `io/<size>/encrypted_model_predictions.txt` | submission stage 8 | harness stage 10 |
 | `io/<size>/harness_model_predictions.txt` | harness stage 10 | harness stage 10 |
+
+The harness treats `submission_reported.json` generically. Its optional
+`Bandwidth` object maps artifact labels to integer byte counts; it does not
+interpret submission-specific paths or cache layouts. Measurement JSON files
+separate one-time offline setup from online evaluation and include generic
+machine provenance plus any submission-provided provenance object.
 
 ## Directory structure
 

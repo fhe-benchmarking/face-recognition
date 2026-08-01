@@ -28,7 +28,12 @@ from pathlib import Path
 ACCEPTANCE_METRIC = "eer_gap_to_arcface"
 MAX_EER_GAP_TO_ARCFACE = 0.15
 
-def calculate_face_metrics(gt_labels_file: Path, scores_file: Path, tag: str) -> dict:
+def calculate_face_metrics(
+    gt_labels_file: Path,
+    scores_file: Path,
+    tag: str,
+    expected_count: int | None = None,
+) -> dict:
     """
     Compute EER and TAR@FAR from cosine similarity scores and ground-truth labels.
 
@@ -56,6 +61,10 @@ def calculate_face_metrics(gt_labels_file: Path, scores_file: Path, tag: str) ->
         raise ValueError(
             f"[harness] {tag}: label/score count mismatch — "
             f"{len(labels)} labels vs {len(scores)} scores"
+        )
+    if expected_count is not None and len(scores) != expected_count:
+        raise ValueError(
+            f"[harness] {tag}: expected {expected_count} scores, got {len(scores)}"
         )
     n = len(labels)
     if n == 0:

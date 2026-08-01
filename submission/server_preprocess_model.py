@@ -1,28 +1,23 @@
 #!/usr/bin/env python3
-"""
-server_preprocess_model.py — server-side model preprocessing (stub).
-
-The client (client_key_generation) generates the evaluation keys and compiles
-the model with io_mode=save — that step also produces the plaintext model
-diagonals. The server therefore has nothing to compute here; it only needs
-input_level.txt, which the client already wrote. This stub recomputes it from
-the CKKS config for robustness. The heavy work (loading the evaluation keys and
-diagonals) happens once in server_encrypted_compute via io_mode=load, without
-ever touching the secret key.
-"""
+"""Server-owned checkpoint compilation and persistent packed-model caching."""
+import json
 import sys
 import time
-import yaml
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import load_submission_config, get_face_params, get_repo_root, mute_logs
+from common import (
+    build_pipeline_server_save, get_face_params, get_repo_root,
+    get_server_model_dir, load_submission_config, mute_logs, sha256_file,
+    validate_cache_manifest, validate_key_cache, write_cache_manifest,
+    write_server_model_reference,
+)
 
 
 def main():
     mute_logs()
     t0 = time.time()
-    cfg = load_submission_config()
+    cfg = load_submission_config(resolve_checkpoint=True)
 
     size_file = get_repo_root() / "io" / "current_size.txt"
     if not size_file.exists():
@@ -31,21 +26,81 @@ def main():
         sys.exit(1)
     size = int(size_file.read_text().strip())
     params = get_face_params(size)
-    keys_dir = params.iodir() / "public_keys"
-
-    # Derive input_level from the CKKS config: len(LogQ) - 1.
+    validate_key_cache(cfg, params)
+    model_dir, identity = get_server_model_dir(cfg, params)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    cache_hit = False
     try:
-        with open(cfg["orion_config"]) as f:
-            logq = yaml.safe_load(f)["ckks_params"]["LogQ"]
-    except KeyError as e:
-        print(f"[server_preprocess_model] ERROR: missing key {e} in {cfg['orion_config']}", flush=True)
-        sys.exit(1)
-    input_level = len(logq) - 1
-    keys_dir.mkdir(parents=True, exist_ok=True)
-    (keys_dir / "input_level.txt").write_text(str(input_level))
+        cache = validate_cache_manifest(model_dir, verify_hashes=True)
+        cache_hit = cache["metadata"].get("identity") == identity
+    except (FileNotFoundError, ValueError):
+        cache = None
+    if not cache_hit:
+        stale = model_dir / "cache_manifest.json"
+        if stale.exists():
+            stale.unlink()
+        print("[model-prep] Compiling checkpoint into server-owned diagonals...", flush=True)
+        input_level = build_pipeline_server_save(cfg, params, model_dir)
+        cache = write_cache_manifest(
+            model_dir,
+            ["diagonals.h5"],
+            {"identity": identity, "input_level": input_level},
+        )
+    else:
+        input_level = int(cache["metadata"]["input_level"])
+        print("[model-prep] Validated persistent packed-model cache.", flush=True)
 
-    print(f"[server_preprocess_model] stub: input_level={input_level}  "
-          f"total={time.time()-t0:.1f}s", flush=True)
+    client_level = int(
+        (params.iodir() / "public_keys" / "input_level.txt").read_text()
+    )
+    if input_level != client_level:
+        raise ValueError(
+            f"Client/server input-level mismatch: {client_level} != {input_level}"
+        )
+    write_server_model_reference(params, model_dir, cache)
+    (params.iodir() / "submission_reported.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "Bandwidth": {
+                    "Packed model": cache["files"]["diagonals.h5"]["size_bytes"],
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+    dataset_path = params.rootdir / "datasets" / "face_dataset.npy"
+    labels_path = params.rootdir / "datasets" / "face_dataset_labels.txt"
+    provenance = {
+        "schema_version": 1,
+        "model": {
+            "hf_repo": cfg["ckpt_hf_repo"],
+            "hf_file": cfg["ckpt_hf_file"],
+            "sha256": identity["checkpoint_sha256"],
+        },
+        "dataset": {
+            "hf_repo": cfg["dataset_hf_repo"],
+            "data_sha256": sha256_file(dataset_path),
+            "labels_sha256": sha256_file(labels_path),
+        },
+        "orion_commit": cfg["orion_commit"],
+        "orion_config_sha256": identity["orion_config_sha256"],
+        "circuit_manifest_sha256": identity["circuit_manifest_sha256"],
+        "pair_slots": cfg["pair_slots"],
+        "aggregator_max_pairs": cfg["aggregator_max_pairs"],
+        "packed_model_sha256": cache["files"]["diagonals.h5"]["sha256"],
+        "packed_model_size_bytes": cache["files"]["diagonals.h5"]["size_bytes"],
+    }
+    (params.iodir() / "provenance.json").write_text(
+        json.dumps(provenance, indent=2) + "\n"
+    )
+    print(
+        f"[model-prep] Ready in {time.time()-t0:.1f}s "
+        f"(cache={'hit' if cache_hit else 'created'})",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

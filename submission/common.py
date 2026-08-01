@@ -2,13 +2,14 @@ import os
 import sys
 import yaml
 import time
+import hashlib
+import json
+import logging
+import warnings
 import numpy as np
 import torch
+from contextlib import contextmanager
 from pathlib import Path
-
-from models.cryptoface_pcnn import CryptoFaceNet
-from models.weight_loader import load_cryptoface_checkpoint
-from models.pipeline import PerImagePipeline
 from utils.preprocessing import extract_patches
 
 # Computed once at import time; submission/ is one level below the repo root.
@@ -21,16 +22,32 @@ def get_repo_root() -> Path:
 
 
 def mute_logs() -> None:
-    """Silence a submission stage's output, matching the ml-inference reference.
+    """Reduce third-party logging while keeping submission milestones visible."""
+    for name in ("matplotlib", "onnxruntime", "insightface", "PIL"):
+        logging.getLogger(name).setLevel(logging.ERROR)
+    warnings.filterwarnings("ignore", category=FutureWarning, module=r"insightface\..*")
 
-    Redirects stdout and stderr (file descriptors 1 and 2) to /dev/null, which
-    also suppresses native-library chatter and Python warnings. Harness logging
-    remains visible because the stage runs in a separate process.
-    """
+
+@contextmanager
+def suppress_third_party_output():
+    """Temporarily silence native/Python chatter around noisy library calls."""
+    stdout_fd = os.dup(1)
+    stderr_fd = os.dup(2)
     devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull_fd, 1)
-    os.dup2(devnull_fd, 2)
-    os.close(devnull_fd)
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(devnull_fd, 1)
+        os.dup2(devnull_fd, 2)
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(stdout_fd, 1)
+        os.dup2(stderr_fd, 2)
+        os.close(stdout_fd)
+        os.close(stderr_fd)
+        os.close(devnull_fd)
 
 
 def _resolve_checkpoint(cfg: dict) -> str:
@@ -58,7 +75,7 @@ def _resolve_checkpoint(cfg: dict) -> str:
     return hf_hub_download(repo_id=repo, filename=fname)
 
 
-def load_submission_config() -> dict:
+def load_submission_config(resolve_checkpoint: bool = True) -> dict:
     """
     Reads submission/config.yml relative to repo root.
     Repo root is Path(__file__).parents[1] (submission/ → repo_root/).
@@ -72,9 +89,11 @@ def load_submission_config() -> dict:
     cfg = full_cfg["cryptoface"]
     if "ckpt_path" in cfg and not Path(cfg["ckpt_path"]).is_absolute():
         cfg["ckpt_path"] = str((_REPO_ROOT / cfg["ckpt_path"]).resolve())
-    if "orion_config" in cfg and not Path(cfg["orion_config"]).is_absolute():
-        cfg["orion_config"] = str((_REPO_ROOT / cfg["orion_config"]).resolve())
-    cfg["ckpt_path"] = _resolve_checkpoint(cfg)
+    for key in ("orion_config", "circuit_manifest"):
+        if key in cfg and not Path(cfg[key]).is_absolute():
+            cfg[key] = str((_REPO_ROOT / cfg[key]).resolve())
+    if resolve_checkpoint:
+        cfg["ckpt_path"] = _resolve_checkpoint(cfg)
     return cfg
 
 
@@ -90,7 +109,7 @@ def get_face_params(size: int):
     return InstanceParams(size, rootdir=_REPO_ROOT)
 
 
-def parse_stage_args() -> tuple:
+def parse_stage_args(resolve_checkpoint: bool = True) -> tuple:
     """
     Parse the size argument common to all submission stage scripts.
     Reads sys.argv[1] as the instance size, loads config, and constructs params.
@@ -104,25 +123,9 @@ def parse_stage_args() -> tuple:
         sys.exit(1)
     mute_logs()
     size = int(sys.argv[1])
-    cfg = load_submission_config()
+    cfg = load_submission_config(resolve_checkpoint=resolve_checkpoint)
     params = get_face_params(size)
     return size, cfg, params
-
-
-def decode_master_image(elem) -> np.ndarray:
-    """Return a (3, H, W) uint8 RGB array from a master-dataset element.
-
-    The master dataset (datasets/face_dataset.npy) stores original JPEG file
-    bytes to keep the committed file small; this decodes those bytes. Raw uint8
-    arrays are passed through unchanged. Mirrors the harness's decode in
-    generate_input._to_chw_uint8 so the fit sample matches per-run inputs.
-    """
-    import io as _io
-    from PIL import Image
-    if isinstance(elem, (bytes, bytearray, np.bytes_)):
-        img = Image.open(_io.BytesIO(bytes(elem))).convert("RGB")
-        return np.asarray(img, dtype=np.uint8).transpose(2, 0, 1)
-    return np.asarray(elem)
 
 
 def align_face(detector, img_chw_rgb: np.ndarray, output_size: int) -> np.ndarray | None:
@@ -205,63 +208,176 @@ def load_detector():
     without a GPU.
     """
     from insightface.app import FaceAnalysis
-    app = FaceAnalysis(name='buffalo_l', providers=["CPUExecutionProvider"])
-    app.prepare(ctx_id=-1, det_size=(640, 640))
+    with suppress_third_party_output():
+        app = FaceAnalysis(name='buffalo_l', providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=-1, det_size=(640, 640))
     return app
 
 
-def init_orion_scheme(cfg: dict, params, io_mode: str,
-                      load_secret_key: bool = True) -> None:
-    """
-    Load orion config yaml, set io_mode and key/diag paths, call orion.init_scheme().
+def sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        while chunk := stream.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
 
-    Key material is split so it mirrors a practical client/server split:
-      - secret_key/sk.h5     — the secret key (private; client only)
-      - public_keys/keys.h5  — the evaluation keys (relin + galois) a client
-                               uploads to the server
-      - model_data/diagonals.h5 — the plaintext model diagonals
 
-    Args:
-        cfg:     submission config dict (from load_submission_config)
-        params:  InstanceParams (provides iodir())
-        io_mode: "save" (generates + persists keys) or "load" (reads them)
-        load_secret_key: if False (server side), the secret key is neither loaded
-                 nor used — only the evaluation keys are.
-    """
+def load_circuit_manifest(cfg: dict) -> dict:
+    with open(cfg["circuit_manifest"], encoding="utf-8") as stream:
+        return json.load(stream)
+
+
+def _canonical_hash(value) -> str:
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def write_cache_manifest(directory: Path, files: list[str], metadata: dict) -> dict:
+    records = {}
+    for name in files:
+        path = directory / name
+        records[name] = {
+            "size_bytes": path.stat().st_size,
+            "sha256": sha256_file(path),
+        }
+    manifest = {
+        "schema_version": 1,
+        "complete": True,
+        "metadata": metadata,
+        "files": records,
+    }
+    path = directory / "cache_manifest.json"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(manifest, indent=2) + "\n")
+    temporary.replace(path)
+    return manifest
+
+
+def validate_cache_manifest(directory: Path, verify_hashes: bool = True) -> dict:
+    path = directory / "cache_manifest.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing cache manifest: {path}")
+    manifest = json.loads(path.read_text())
+    if manifest.get("schema_version") != 1 or manifest.get("complete") is not True:
+        raise ValueError(f"Incomplete or unsupported cache manifest: {path}")
+    for name, expected in manifest.get("files", {}).items():
+        artifact = directory / name
+        if not artifact.is_file():
+            raise FileNotFoundError(f"Missing cached artifact: {artifact}")
+        if artifact.stat().st_size != expected.get("size_bytes"):
+            raise ValueError(f"Cached artifact size mismatch: {artifact}")
+        if verify_hashes and sha256_file(artifact) != expected.get("sha256"):
+            raise ValueError(f"Cached artifact hash mismatch: {artifact}")
+    if not manifest.get("files"):
+        raise ValueError(f"Cache manifest contains no files: {path}")
+    return manifest
+
+
+def validate_key_cache(cfg: dict, params, include_secret: bool = False) -> None:
+    manifest_hash = sha256_file(Path(cfg["circuit_manifest"]))
+    public = validate_cache_manifest(params.iodir() / "public_keys")
+    if set(public["files"]) != {"keys.h5", "input_level.txt"}:
+        raise ValueError("Evaluation-key cache has an unexpected file manifest")
+    if public["metadata"].get("circuit_manifest_sha256") != manifest_hash:
+        raise ValueError("Evaluation keys were generated for another circuit manifest")
+    if include_secret:
+        secret = validate_cache_manifest(params.iodir() / "secret_key")
+        if set(secret["files"]) != {"sk.h5"}:
+            raise ValueError("Secret-key cache has an unexpected file manifest")
+
+
+def model_cache_identity(cfg: dict) -> dict:
+    with open(cfg["orion_config"]) as stream:
+        orion_config = yaml.safe_load(stream)
+    return {
+        "checkpoint_sha256": sha256_file(Path(cfg["ckpt_path"])),
+        "orion_config_sha256": _canonical_hash(orion_config),
+        "circuit_manifest_sha256": sha256_file(Path(cfg["circuit_manifest"])),
+        "orion_commit": cfg["orion_commit"],
+    }
+
+
+def get_server_model_dir(cfg: dict, params) -> tuple[Path, dict]:
+    identity = model_cache_identity(cfg)
+    cache_key = _canonical_hash(identity)[:24]
+    return params.rootdir / "io" / "server_data" / cache_key, identity
+
+
+def write_server_model_reference(params, model_dir: Path, cache_manifest: dict) -> None:
+    reference = {
+        "schema_version": 1,
+        "model_dir": str(model_dir.resolve()),
+        "cache_manifest_sha256": sha256_file(model_dir / "cache_manifest.json"),
+        "packed_model_size_bytes": cache_manifest["files"]["diagonals.h5"]["size_bytes"],
+        "packed_model_sha256": cache_manifest["files"]["diagonals.h5"]["sha256"],
+    }
+    path = params.iodir() / "server_model.json"
+    path.write_text(json.dumps(reference, indent=2) + "\n")
+
+
+def read_server_model_reference(params) -> tuple[Path, dict]:
+    reference_path = params.iodir() / "server_model.json"
+    reference = json.loads(reference_path.read_text())
+    model_dir = Path(reference["model_dir"])
+    manifest_path = model_dir / "cache_manifest.json"
+    if sha256_file(manifest_path) != reference["cache_manifest_sha256"]:
+        raise ValueError("Server model cache manifest changed after preprocessing")
+    manifest = validate_cache_manifest(model_dir, verify_hashes=False)
+    packed = manifest["files"]["diagonals.h5"]
+    if (packed["size_bytes"] != reference["packed_model_size_bytes"] or
+            packed["sha256"] != reference["packed_model_sha256"]):
+        raise ValueError("Server model reference does not match packed model cache")
+    return model_dir, manifest
+
+
+def init_orion_scheme(
+    cfg: dict,
+    params,
+    key_io_mode: str,
+    diags_io_mode: str = "none",
+    load_secret_key: bool = True,
+    model_dir: Path | None = None,
+):
+    """Initialize Orion with independent client-key and server-model modes."""
     import orion
-    keys_dir  = params.iodir() / "public_keys"       # evaluation keys (relin + galois)
-    sk_dir    = params.iodir() / "secret_key"        # private secret key (client only)
-    model_dir = params.iodir() / "model_data"        # plaintext model diagonals
+    keys_dir = params.iodir() / "public_keys"
+    sk_dir = params.iodir() / "secret_key"
+    model_dir = model_dir or (params.rootdir / "io" / "server_data" / "unused")
     keys_dir.mkdir(parents=True, exist_ok=True)
     sk_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
     with open(cfg["orion_config"]) as f:
         config = yaml.safe_load(f)
-    config["orion"]["io_mode"]  = io_mode
+    config["orion"]["io_mode"] = "none"
+    config["orion"]["key_io_mode"] = key_io_mode
+    config["orion"]["diags_io_mode"] = diags_io_mode
     config["orion"]["diags_path"] = str((model_dir / "diagonals.h5").resolve())
     config["orion"]["keys_path"]  = str((keys_dir / "keys.h5").resolve())
     config["orion"]["sk_path"]    = str((sk_dir / "sk.h5").resolve())
     config["orion"]["load_secret_key"] = load_secret_key
-    orion.init_scheme(config)
+    with suppress_third_party_output():
+        return orion.init_scheme(config)
 
 
-def load_fit_patches(params) -> list:
-    """
-    Load the fit sample patches saved by client_key_generation.
-
-    Loads params.iodir() / "public_keys" / "fit_sample.npy"
-    Shape: (N, 1, 3, 32, 32) float32
-
-    Returns list of N tensors, each (1, 3, 32, 32) float32.
-    """
-    fit_path = params.iodir() / "public_keys" / "fit_sample.npy"
-    arr = np.load(fit_path)  # (N, 1, 3, 32, 32) float32
-    return [torch.from_numpy(arr[k].copy()) for k in range(arr.shape[0])]
+def deterministic_fit_patches(cfg: dict) -> list[torch.Tensor]:
+    """Return deterministic shape inputs; no benchmark image enters compilation."""
+    manifest = load_circuit_manifest(cfg)
+    patches = []
+    for index, shape in enumerate(manifest["circuit"]["input_shapes"]):
+        values = torch.linspace(-1.0, 1.0, int(np.prod(shape)), dtype=torch.float32)
+        patches.append(torch.roll(values.reshape(shape), shifts=index, dims=-1))
+    return patches
 
 
 def _build_model_pipeline(cfg: dict):
     """Construct the CryptoFace model and per-image Orion pipeline (shared by the
     save and load paths). Returns (model, pipeline)."""
+    from models.cryptoface_pcnn import CryptoFaceNet
+    from models.pipeline import PerImagePipeline
+    from models.weight_loader import load_cryptoface_checkpoint
+
     a, b, c = cfg["l2_poly_coeffs"]
     model = CryptoFaceNet(cfg["input_size"], l2_norm_coeffs=(a, b, c))
     load_cryptoface_checkpoint(model, cfg["ckpt_path"])
@@ -276,67 +392,67 @@ def _build_model_pipeline(cfg: dict):
     return model, pipeline
 
 
-def build_pipeline_save(cfg: dict, params) -> int:
-    """
-    Client key generation + model preprocessing (run once): generate a fresh
-    secret key and the full evaluation-key set (relin + all galois/rotation keys,
-    including the bootstrapping keys), and compile with io_mode=save so those keys
-    plus the plaintext model diagonals are persisted. The secret key is written
-    to the private secret_key/ file; the evaluation keys (what a client uploads)
-    go to public_keys/; the diagonals go to model_data/.
-
-    Runs client-side because generating the rotation keys requires the secret key.
-    server_preprocess_model / build_pipeline_load then load the evaluation keys
-    without ever touching the secret key.
-
-    Returns: input_level
-    """
+def build_pipeline_server_save(cfg: dict, params, model_dir: Path) -> int:
+    """Server-owned checkpoint loading, circuit compilation, and model packing."""
     import orion
 
     t0 = time.time()
-    model, pipeline = _build_model_pipeline(cfg)
-
-    # io_mode=save: generate + persist sk, relin, galois, and diagonals.
-    init_orion_scheme(cfg, params, "save")
-
-    fit_patches = load_fit_patches(params)
-    orion.fit(pipeline, fit_patches)
-    input_level = orion.compile(pipeline)
-    print(f"[common] build_pipeline_save (compile io_mode=save) done in "
-          f"{time.time()-t0:.1f}s  input_level={input_level}", flush=True)
+    with suppress_third_party_output():
+        _model, pipeline = _build_model_pipeline(cfg)
+        init_orion_scheme(
+            cfg, params, "load", "save",
+            load_secret_key=False, model_dir=model_dir,
+        )
+        orion.fit(pipeline, deterministic_fit_patches(cfg))
+        input_level = orion.compile(pipeline)
+        orion.validate_compiled_manifest(load_circuit_manifest(cfg))
+    print(
+        f"[model-prep] Packed server model in {time.time()-t0:.1f}s "
+        f"(input_level={input_level})",
+        flush=True,
+    )
     return input_level
 
 
 def build_pipeline_load(cfg: dict, params) -> tuple:
     """
-    Load the Orion pipeline entirely from disk (io_mode=load), using only the
-    public/evaluation keys and plaintext diagonals persisted by
-    build_pipeline_save. compile() reads them from HDF5 instead of recomputing;
-    preload_all() brings them into memory. The secret key is never loaded.
+    Load the Orion pipeline from server-owned packed model data and uploaded
+    public/evaluation keys. The secret key is never loaded.
 
-    Returns: (pipeline, input_level, embedding_dim, n_patches)
+    Returns the pipeline, dimensions, and setup timing breakdown.
     """
     import orion
     from orion.core import scheme as _scheme
 
     t0 = time.time()
+    model_dir, _cache = read_server_model_reference(params)
 
-    model, pipeline = _build_model_pipeline(cfg)
-
-    # Server side: load only the evaluation keys (relin + galois) and plaintext
-    # diagonals from disk — never the secret key (load_secret_key=False). compile()
-    # reads them from HDF5 instead of recomputing (~25 min) on every run.
-    init_orion_scheme(cfg, params, "load", load_secret_key=False)
-
-    fit_patches = load_fit_patches(params)
-    orion.fit(pipeline, fit_patches)
-    input_level = orion.compile(pipeline)
-    _scheme.lt_evaluator.preload_all(pipeline)
+    with suppress_third_party_output():
+        model, pipeline = _build_model_pipeline(cfg)
+        init_orion_scheme(
+            cfg, params, "load", "load",
+            load_secret_key=False, model_dir=model_dir,
+        )
+        orion.fit(pipeline, deterministic_fit_patches(cfg))
+        compile_t0 = time.time()
+        input_level = orion.compile(pipeline)
+        compile_s = time.time() - compile_t0
+        orion.validate_compiled_manifest(load_circuit_manifest(cfg))
+        preload_t0 = time.time()
+        _scheme.lt_evaluator.preload_all(pipeline)
+        model_io_s = time.time() - preload_t0
 
     pipeline.he()
 
     n_patches = model.N
     embedding_dim = model.embedding_dim
-    print(f"[common] build_pipeline_load done in {time.time()-t0:.1f}s  "
-          f"input_level={input_level}  n_patches={n_patches}", flush=True)
-    return pipeline, input_level, embedding_dim, n_patches
+    setup_s = time.time() - t0
+    print(
+        f"[server-setup] Pipeline ready in {setup_s:.1f}s "
+        f"(compile={compile_s:.1f}s, model_io={model_io_s:.1f}s)",
+        flush=True,
+    )
+    return (
+        pipeline, input_level, embedding_dim, n_patches,
+        {"compile_s": compile_s, "model_io_s": model_io_s},
+    )

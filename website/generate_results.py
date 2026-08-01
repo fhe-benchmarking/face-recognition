@@ -23,6 +23,8 @@ SIZES = {
 
 TIMING_COLUMNS = [
     ("Total", "Total"),
+    ("Offline setup total", "Offline setup"),
+    ("Online evaluation total", "Online evaluation"),
     ("Test dataset generation", "Dataset"),
     ("Key Generation", "Keygen"),
     ("Encrypted model preprocessing", "Model prep"),
@@ -37,9 +39,14 @@ TIMING_COLUMNS = [
 ]
 
 SERVER_COLUMNS = [
-    ("Total", "Total"),
-    ("Pipeline load and key setup", "Setup"),
-    ("Encrypted computation", "Compute"),
+    ("Total", "Total (wall)"),
+    ("Pipeline load and key setup", "Setup (wall)"),
+    ("Packed model I/O", "Model I/O"),
+    ("Runtime circuit compilation", "Runtime compile"),
+    ("Ciphertext input I/O worker-seconds", "Input I/O (worker)"),
+    ("Ciphertext transport worker-seconds", "Transport (worker)"),
+    ("Encrypted inference worker-seconds", "Inference (worker)"),
+    ("Encrypted computation", "Compute (wall)"),
     ("Backbone forward worker-seconds", "Backbones (worker)"),
     ("Normalization worker-seconds", "Normalize (worker)"),
     ("Inner product worker-seconds", "Inner product (worker)"),
@@ -93,6 +100,13 @@ def _format_metric(value: float | None) -> str:
     return "-" if value is None else f"{value:.4f}"
 
 
+def _format_bytes(value: int) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            return f"{value:.1f} {unit}"
+        value /= 1024
+
+
 def _same_value(runs: list[dict], section: str, key: str) -> str:
     values = {run.get(section, {}).get(key) for run in runs}
     values.discard(None)
@@ -101,6 +115,24 @@ def _same_value(runs: list[dict], section: str, key: str) -> str:
     if len(values) != 1:
         raise ValueError(f"{section}.{key} differs across runs: {sorted(values)}")
     return str(values.pop())
+
+
+def _same_path_value(runs: list[dict], *path: str) -> str:
+    values = []
+    for run in runs:
+        value = run
+        for key in path:
+            if not isinstance(value, dict) or key not in value:
+                break
+            value = value[key]
+        else:
+            values.append(value)
+    if not values:
+        return "-"
+    serialized = {json.dumps(value, sort_keys=True) for value in values}
+    if len(serialized) != 1:
+        raise ValueError(f"{'.'.join(path)} differs across runs")
+    return str(values[0])
 
 
 def _quality_columns(size: str, runs: list[dict]) -> list[tuple[str, str]]:
@@ -145,16 +177,29 @@ def _quality_columns(size: str, runs: list[dict]) -> list[tuple[str, str]]:
 
 def _render(size: str, display_name: str, runs: list[dict], date: str) -> str:
     quality = _quality_columns(size, runs)
+    memory = _same_path_value(
+        runs, "Provenance", "Harness environment", "memory_bytes"
+    )
     groups = [
         ("Submitter", "submitter", [
             ("Name", '<a href="https://github.com/fhe-benchmarking/face-recognition">CryptoFace</a>'),
             ("Date", html.escape(date)),
-            ("Env", "CPU"),
+            ("CPU", _same_path_value(
+                runs, "Provenance", "Harness environment", "cpu_model"
+            )),
+            ("RAM", _format_bytes(int(memory)) if memory != "-" else "-"),
+            ("Orion", _same_path_value(
+                runs, "Provenance", "Submission", "orion_commit"
+            )[:12]),
+            ("Slots", _same_path_value(
+                runs, "Provenance", "Submission", "pair_slots"
+            )),
             ("R/L", "L"),
             ("Runs", str(len(runs))),
         ]),
         ("Bandwidth", "bandwidth", [
             ("Keys", _same_value(runs, "Bandwidth", "Public and evaluation keys")),
+            ("Model", _same_value(runs, "Bandwidth", "Packed model")),
             ("Input", _same_value(runs, "Bandwidth", "Encrypted input")),
             ("Result", _same_value(runs, "Bandwidth", "Encrypted results")),
         ]),

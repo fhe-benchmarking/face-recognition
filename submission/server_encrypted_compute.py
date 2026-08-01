@@ -9,7 +9,6 @@ os.environ.setdefault("GODEBUG", "madvdontneed=1")
 import gc
 import json
 import multiprocessing
-import pickle
 import sys
 import time
 import traceback
@@ -36,12 +35,6 @@ def _error(exc):
     }
 
 
-def _atomic_write(path, data):
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_bytes(data)
-    temporary.replace(path)
-
-
 def _branch_entry(pair_idx, image_idx, branch_idx, connection):
     """Run one image/backbone branch and exit after returning its ciphertext."""
     try:
@@ -49,10 +42,10 @@ def _branch_entry(pair_idx, image_idx, branch_idx, connection):
         from orion.core import scheme
 
         total_t0 = time.time()
-        payload = pickle.loads(
-            (_upload_dir / f"p{pair_idx:04d}_i{image_idx}_b{branch_idx}.bin").read_bytes()
+        ciphertext = CipherTensor.load(
+            scheme,
+            _upload_dir / f"p{pair_idx:04d}_i{image_idx}_b{branch_idx}.h5",
         )
-        ciphertext = CipherTensor.deserialize(scheme, payload)
         deserialize_s = time.time() - total_t0
 
         forward_t0 = time.time()
@@ -62,7 +55,7 @@ def _branch_entry(pair_idx, image_idx, branch_idx, connection):
         forward_s = time.time() - forward_t0
 
         serialize_t0 = time.time()
-        feature_bytes = pickle.dumps(feature.serialize())
+        feature_serialized = feature.serialize()
         connection.send({
             "status": "pass",
             "pair_idx": pair_idx,
@@ -72,7 +65,7 @@ def _branch_entry(pair_idx, image_idx, branch_idx, connection):
             "forward_s": forward_s,
             "serialize_s": time.time() - serialize_t0,
             "total_s": time.time() - total_t0,
-            "feature_bytes": feature_bytes,
+            "feature_serialized": feature_serialized,
         })
     except BaseException as exc:
         try:
@@ -184,10 +177,12 @@ def _aggregate(command, output_dir):
     started = time.time()
     by_image = {0: {}, 1: {}}
     for result in command["branch_results"]:
-        by_image[result["image_idx"]][result["branch_idx"]] = result["feature_bytes"]
+        by_image[result["image_idx"]][result["branch_idx"]] = (
+            result["feature_serialized"]
+        )
     features = [
         [
-            CipherTensor.deserialize(scheme, pickle.loads(by_image[image][branch]))
+            CipherTensor.deserialize(scheme, by_image[image][branch])
             for branch in range(_n_patches)
         ]
         for image in range(2)
@@ -207,11 +202,10 @@ def _aggregate(command, output_dir):
     )
     inner_product_s = time.time() - inner_product_t0
     serialize_t0 = time.time()
-    score_bytes = pickle.dumps(score.serialize())
+    score.save(output_dir / f"p{pair_idx:04d}_score.h5")
     serialize_s = time.time() - serialize_t0
-    _atomic_write(output_dir / f"p{pair_idx:04d}_score.bin", score_bytes)
 
-    del by_image, features, embeddings, score, score_bytes
+    del by_image, features, embeddings, score
     gc.collect()
     return {
         "pair_idx": pair_idx,
@@ -306,7 +300,7 @@ def _aggregator_manager_loop(connection, output_dir, max_pairs):
 
 def _pair_indices(upload_dir):
     indices = sorted(
-        int(path.name[1:5]) for path in upload_dir.glob("p????_i0_b0.bin")
+        int(path.name[1:5]) for path in upload_dir.glob("p????_i0_b0.h5")
     )
     if not indices:
         raise FileNotFoundError(f"No encrypted pairs found in {upload_dir}")
@@ -317,31 +311,63 @@ def _pair_indices(upload_dir):
         for pair in indices
         for image in range(2)
         for branch in range(_n_patches)
-        if not (upload_dir / f"p{pair:04d}_i{image}_b{branch}.bin").exists()
+        if not (upload_dir / f"p{pair:04d}_i{image}_b{branch}.h5").exists()
     ]
     if missing:
         raise FileNotFoundError(f"Missing {len(missing)} encrypted branch inputs")
     return indices
 
 
-def _write_report(params, total_s, setup_s, compute_s, results, pair_slots):
+def _write_report(
+    params, total_s, setup_s, setup_details, compute_s, results, pair_slots
+):
     branches = [item for result in results for item in result["branch_results"]]
     aggregations = [result["aggregation"] for result in results]
+    backbone_s = sum(item["forward_s"] for item in branches)
+    normalization_s = sum(item["normalization_s"] for item in aggregations)
+    inner_product_s = sum(item["inner_product_s"] for item in aggregations)
+    input_io_s = sum(item["deserialize_s"] for item in branches)
+    transport_s = (
+        sum(item["serialize_s"] for item in branches)
+        + sum(item["feature_deserialize_s"] for item in aggregations)
+        + sum(item["serialize_s"] for item in aggregations)
+    )
     report = {
         "Encrypted computation": round(compute_s, 4),
         "Total": round(total_s, 4),
         "Pipeline load and key setup": round(setup_s, 4),
-        "Backbone forward worker-seconds": round(
-            sum(item["forward_s"] for item in branches), 4
+        "Packed model I/O": round(setup_details.get("model_io_s", 0.0), 4),
+        "Runtime circuit compilation": round(
+            setup_details.get("compile_s", 0.0), 4
         ),
-        "Normalization worker-seconds": round(
-            sum(item["normalization_s"] for item in aggregations), 4
+        "Ciphertext input I/O worker-seconds": round(input_io_s, 4),
+        "Ciphertext transport worker-seconds": round(transport_s, 4),
+        "Encrypted inference worker-seconds": round(
+            backbone_s + normalization_s + inner_product_s, 4
         ),
-        "Inner product worker-seconds": round(
-            sum(item["inner_product_s"] for item in aggregations), 4
-        ),
+        "Backbone forward worker-seconds": round(backbone_s, 4),
+        "Normalization worker-seconds": round(normalization_s, 4),
+        "Inner product worker-seconds": round(inner_product_s, 4),
         "Mean encrypted wall time per pair": round(compute_s / len(results), 4)
         if results else 0.0,
+        "Timing semantics": {
+            "wall_time": [
+                "Encrypted computation",
+                "Total",
+                "Pipeline load and key setup",
+                "Packed model I/O",
+                "Runtime circuit compilation",
+                "Mean encrypted wall time per pair",
+            ],
+            "summed_worker_time": [
+                "Ciphertext input I/O worker-seconds",
+                "Ciphertext transport worker-seconds",
+                "Encrypted inference worker-seconds",
+                "Backbone forward worker-seconds",
+                "Normalization worker-seconds",
+                "Inner product worker-seconds",
+            ],
+        },
     }
     path = params.iodir() / "server_reported.json"
     temporary = path.with_suffix(".json.tmp")
@@ -361,15 +387,22 @@ def main():
         raise ValueError("Server concurrency settings must be positive")
 
     setup_t0 = time.time()
-    _pipeline, _level, _embedding_dim, _n_patches = build_pipeline_load(cfg, params)
+    (
+        _pipeline, _level, _embedding_dim, _n_patches, setup_details
+    ) = build_pipeline_load(cfg, params)
     setup_s = time.time() - setup_t0
     _upload_dir = params.iodir() / "ciphertexts_upload"
     output_dir = params.iodir() / "ciphertexts_download"
     output_dir.mkdir(parents=True, exist_ok=True)
     indices = _pair_indices(_upload_dir)
+    if len(indices) != params.get_batch_size():
+        raise ValueError(
+            f"Expected {params.get_batch_size()} encrypted pairs, "
+            f"found {len(indices)}"
+        )
     pending = deque(
         pair for pair in indices
-        if not (output_dir / f"p{pair:04d}_score.bin").exists()
+        if not (output_dir / f"p{pair:04d}_score.h5").exists()
     )
     slot_count = min(pair_slots, len(pending))
     print(
@@ -378,7 +411,10 @@ def main():
         flush=True,
     )
     if not pending:
-        _write_report(params, time.time() - stage_t0, setup_s, 0.0, [], slot_count)
+        _write_report(
+            params, time.time() - stage_t0, setup_s, setup_details,
+            0.0, [], slot_count,
+        )
         return
 
     ctx = multiprocessing.get_context("fork")
@@ -438,7 +474,7 @@ def main():
                     "branch_results": in_aggregation["branch_results"],
                 })
                 for branch in in_aggregation["branch_results"]:
-                    del branch["feature_bytes"]
+                    del branch["feature_serialized"]
 
             if in_aggregation is not None and aggregator_connection.poll():
                 response = aggregator_connection.recv()
@@ -473,7 +509,8 @@ def main():
     compute_s = time.time() - compute_t0
     results.sort(key=lambda item: item["pair_idx"])
     _write_report(
-        params, time.time() - stage_t0, setup_s, compute_s, results, slot_count
+        params, time.time() - stage_t0, setup_s, setup_details,
+        compute_s, results, slot_count,
     )
     print(
         f"[server_encrypted_compute] Done: {len(results)} pairs in {compute_s:.1f}s "
