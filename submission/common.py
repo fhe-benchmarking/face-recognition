@@ -1,4 +1,5 @@
 import os
+import io
 import sys
 import yaml
 import time
@@ -10,15 +11,31 @@ import numpy as np
 import torch
 from contextlib import contextmanager
 from pathlib import Path
+from PIL import Image
 from utils.preprocessing import extract_patches
 
 # Computed once at import time; submission/ is one level below the repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_PAIR_INDEX_WIDTH = 12
 
 
 def get_repo_root() -> Path:
     """Return the repository root directory."""
     return _REPO_ROOT
+
+
+def pair_stem(index: int) -> str:
+    """Return a stable pair identifier that scales beyond four-digit batches."""
+    if index < 0:
+        raise ValueError("Pair indices must be non-negative")
+    return f"p{index:0{_PAIR_INDEX_WIDTH}d}"
+
+
+def decode_image(encoded) -> np.ndarray:
+    """Decode an encoded image into CHW uint8 RGB form."""
+    payload = np.asarray(encoded, dtype=np.uint8).tobytes()
+    with Image.open(io.BytesIO(payload)) as image:
+        return np.asarray(image.convert("RGB"), dtype=np.uint8).transpose(2, 0, 1).copy()
 
 
 def mute_logs() -> None:
@@ -214,11 +231,34 @@ def load_detector():
     return app
 
 
+def _release_fd_cache(fd: int) -> None:
+    """Release completed sequential file I/O from the kernel page cache."""
+    fadvise = getattr(os, "posix_fadvise", None)
+    dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
+    if fadvise is None or dontneed is None:
+        return
+    try:
+        fadvise(fd, 0, 0, dontneed)
+    except OSError:
+        # Cache eviction is an optimization and may be unsupported by the FS.
+        pass
+
+
+def release_file_cache(path: Path) -> None:
+    """Advise the kernel that a fully consumed artifact need not stay cached."""
+    try:
+        with Path(path).open("rb", buffering=0) as stream:
+            _release_fd_cache(stream.fileno())
+    except OSError:
+        pass
+
+
 def sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
         while chunk := stream.read(chunk_size):
             digest.update(chunk)
+        _release_fd_cache(stream.fileno())
     return digest.hexdigest()
 
 
@@ -358,7 +398,12 @@ def init_orion_scheme(
     config["orion"]["sk_path"]    = str((sk_dir / "sk.h5").resolve())
     config["orion"]["load_secret_key"] = load_secret_key
     with suppress_third_party_output():
-        return orion.init_scheme(config)
+        scheme = orion.init_scheme(config)
+    if key_io_mode == "load":
+        release_file_cache(keys_dir / "keys.h5")
+        if load_secret_key:
+            release_file_cache(sk_dir / "sk.h5")
+    return scheme
 
 
 def deterministic_fit_patches(cfg: dict) -> list[torch.Tensor]:
@@ -435,12 +480,13 @@ def build_pipeline_load(cfg: dict, params) -> tuple:
         )
         orion.fit(pipeline, deterministic_fit_patches(cfg))
         compile_t0 = time.time()
-        input_level = orion.compile(pipeline)
+        orion.compile(pipeline)
         compile_s = time.time() - compile_t0
         orion.validate_compiled_manifest(load_circuit_manifest(cfg))
         preload_t0 = time.time()
         _scheme.lt_evaluator.preload_all(pipeline)
         model_io_s = time.time() - preload_t0
+        release_file_cache(model_dir / "diagonals.h5")
 
     pipeline.he()
 
@@ -453,6 +499,6 @@ def build_pipeline_load(cfg: dict, params) -> tuple:
         flush=True,
     )
     return (
-        pipeline, input_level, embedding_dim, n_patches,
+        pipeline, embedding_dim, n_patches,
         {"compile_s": compile_s, "model_io_s": model_io_s},
     )

@@ -16,6 +16,9 @@ cryptoface:
   # Five concurrent pair slots maximize throughput on an otherwise idle 1 TB
   # machine. Four slots is the safer option when more memory headroom is needed.
   pair_slots: 5
+  # Maximum number of pairs retained in conventional server bookkeeping. This
+  # bounds memory even though strict stage boundaries retain all ciphertexts.
+  stage_chunk_pairs: 10
   # Refresh the aggregation process regularly to release retained Go/FHE memory.
   aggregator_max_pairs: 10
   pair_timeout_s: 3600

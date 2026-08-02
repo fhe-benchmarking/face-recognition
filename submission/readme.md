@@ -65,7 +65,7 @@ downloaded automatically on first use (see `common.load_submission_config`).
 
 ## 2. Encrypted inference pipeline
 
-The submission implements the harness's client/server stages (`submission/*.py`):
+The submission retains the benchmark's conventional client/server entry points:
 
 | Stage | Script | Role |
 |------:|--------|------|
@@ -75,6 +75,13 @@ The submission implements the harness's client/server stages (`submission/*.py`)
 | 6 | `client_encode_encrypt_input` | Client CKKS-encodes and encrypts patch tensors into versioned HDF5 ciphertext files. |
 | 7 | `server_encrypted_compute` | Server loads the Orion circuit and evaluation keys without the secret key, evaluates encrypted pairs with bounded process lifetimes, and returns encrypted scores. |
 | 8 | `client_decrypt_decode` | Client decrypts the scalar similarity scores. |
+
+The conventional path is memory-bounded: stage 5 reads encoded images from an
+indexed HDF5 input and writes one chunked HDF5 patch store, stage 6 encrypts it
+pair-by-pair, stage 7 retains results for at most `stage_chunk_pairs`, and stage
+8 decrypts scores incrementally. Strict stage boundaries still require all
+encrypted inputs to exist before server evaluation, so conventional
+intermediate disk usage grows with the number of pairs.
 
 `server_encrypted_compute` compiles the pipeline once and pre-forks five
 FHE-quiescent slot managers. Each active slot forks eight one-shot workers (two
@@ -158,5 +165,5 @@ criterion allows at most a 0.15 absolute EER increase over ArcFace on the same
 pairs.
 
 Configuration knobs live in `config.yml` (`input_size`, `l2_poly_coeffs`,
-`pair_slots`, and aggregator lifetime) and
+`pair_slots`, `stage_chunk_pairs`, aggregator lifetime, and pair timeout) and
 `orion_configs/cryptoface_net4.yml` (CKKS parameters).

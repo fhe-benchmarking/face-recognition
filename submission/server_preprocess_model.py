@@ -14,6 +14,23 @@ from common import (
 )
 
 
+def _dataset_provenance(params, cfg):
+    """Hash the indexed benchmark source, with legacy source hashes when present."""
+    dataset_dir = params.rootdir / "datasets"
+    indexed_path = dataset_dir / "face_dataset.h5"
+    value = {
+        "hf_repo": cfg["dataset_hf_repo"],
+        "indexed_data_sha256": sha256_file(indexed_path),
+    }
+    legacy_data = dataset_dir / "face_dataset.npy"
+    legacy_labels = dataset_dir / "face_dataset_labels.txt"
+    if legacy_data.is_file():
+        value["legacy_data_sha256"] = sha256_file(legacy_data)
+    if legacy_labels.is_file():
+        value["legacy_labels_sha256"] = sha256_file(legacy_labels)
+    return value
+
+
 def main():
     mute_logs()
     t0 = time.time()
@@ -71,8 +88,6 @@ def main():
         + "\n"
     )
 
-    dataset_path = params.rootdir / "datasets" / "face_dataset.npy"
-    labels_path = params.rootdir / "datasets" / "face_dataset_labels.txt"
     provenance = {
         "schema_version": 1,
         "model": {
@@ -80,15 +95,12 @@ def main():
             "hf_file": cfg["ckpt_hf_file"],
             "sha256": identity["checkpoint_sha256"],
         },
-        "dataset": {
-            "hf_repo": cfg["dataset_hf_repo"],
-            "data_sha256": sha256_file(dataset_path),
-            "labels_sha256": sha256_file(labels_path),
-        },
+        "dataset": _dataset_provenance(params, cfg),
         "orion_commit": cfg["orion_commit"],
         "orion_config_sha256": identity["orion_config_sha256"],
         "circuit_manifest_sha256": identity["circuit_manifest_sha256"],
         "pair_slots": cfg["pair_slots"],
+        "stage_chunk_pairs": cfg["stage_chunk_pairs"],
         "aggregator_max_pairs": cfg["aggregator_max_pairs"],
         "packed_model_sha256": cache["files"]["diagonals.h5"]["sha256"],
         "packed_model_size_bytes": cache["files"]["diagonals.h5"]["size_bytes"],

@@ -45,15 +45,6 @@ class InstanceParams:
         batch_sizes = [1, 128, 256, 1024]
         self.batch_size = batch_sizes[size]
 
-    def get_size(self):
-        """Return the instance size."""
-        return self.size
-
-    # Directory structure methods
-    def subdir(self):
-        """Return the root directory of this repository."""
-        return self.rootdir
-
     def datadir(self):
         """Return the dataset directory path."""
         return self.rootdir / "datasets" / instance_name(self.size)
@@ -80,7 +71,11 @@ class InstanceParams:
 
     def get_test_input_file(self):
         """Return the test input file path."""
-        return self.dataset_intermediate_dir() / "test_pairs.npz"
+        return self.dataset_intermediate_dir() / "test_pairs.h5"
+
+    def get_selection_file(self):
+        """Return the compact run-level source-row selection."""
+        return self.dataset_intermediate_dir() / "test_selection.npz"
 
     def get_ground_truth_labels_file(self):
         """Return the ground truth labels file path."""

@@ -5,15 +5,11 @@
 
 numpy>=1.23.5,<2.3
 torch
-torchvision
 pyyaml
 opencv-python
 insightface>=0.7
 h5py
-einops
-multipledispatch
-scipy
-scikit-learn
+pillow
 onnxruntime>=1.24.2
 huggingface_hub>=0.24
 

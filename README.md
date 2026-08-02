@@ -40,7 +40,7 @@ installed with the Python dependencies above.
 
 | Artifact | Hugging Face repo | Pulled by |
 |---|---|---|
-| `face_dataset.npy` + `face_dataset_labels.txt` | [`halmsu/celeba-1024-pairs`](https://huggingface.co/datasets/halmsu/celeba-1024-pairs) (dataset) | harness `generate_dataset.py` → `datasets/` |
+| `face_dataset.npy` + `face_dataset_labels.txt` | [`halmsu/celeba-1024-pairs`](https://huggingface.co/datasets/halmsu/celeba-1024-pairs) (dataset) | harness `generate_dataset.py` -> indexed `datasets/face_dataset.h5` |
 | `backbone-64x64.ckpt` | [`halmsu/cryptoface-v1`](https://huggingface.co/halmsu/cryptoface-v1) (model) | reference submission `common.load_submission_config` |
 
 The dataset contains 1,024 screened CelebA pairs: 512 genuine and 512 impostor
@@ -50,12 +50,24 @@ detection, landmark alignment, cropping, and only then resizes the aligned crop
 for CryptoFace. The four benchmark variants sample 1, 128, 256, or all 1,024
 pairs from this master set.
 
-**Offline / local override.** To run without network access, place the two
-dataset files in `datasets/` and the checkpoint at the `ckpt_path` in
-`submission/config.yml` (default `submission/checkpoints/backbone-64x64.ckpt`);
-existing local files are always used in preference to the download.
+Evaluation uses `datasets/face_dataset.h5` as a random-access store with
+`image0`, `image1`, and `labels` datasets and schema version 1. The current
+hosted NPY dataset is migrated once on first use. Larger datasets should be
+provided directly in this indexed format; the harness then reads only selected
+labels and the current image chunk instead of loading the source dataset.
+
+**Offline / local override.** To run without network access, place either an
+indexed `face_dataset.h5` or the two legacy dataset files in `datasets/`, and
+place the checkpoint at the `ckpt_path` in `submission/config.yml` (default
+`submission/checkpoints/backbone-64x64.ckpt`). Existing local files are used
+in preference to the download.
 
 ## Running the benchmark
+
+The normative stage contract is specified in
+[docs/submission-interface.md](docs/submission-interface.md).
+Submitters should implement that interface rather than depend on details of the
+CryptoFace reference submission.
 
 ```console
 uv run python harness/run_submission.py -h
@@ -63,7 +75,6 @@ uv run python harness/run_submission.py -h
 
 ```
 usage: run_submission.py [-h] [--num_runs NUM_RUNS] [--seed SEED]
-                         [--clrtxt CLRTXT]
                          {0,1,2,3}
 
 Run Face Verification FHE benchmark.
@@ -74,7 +85,6 @@ positional arguments:
 options:
   --num_runs NUM_RUNS  Number of times to run stages 4-10 (default: 1)
   --seed SEED          Random seed for reproducible pair sampling
-  --clrtxt CLRTXT      Set to 1 to force rerun of cleartext reference
 ```
 
 ### Example: single-pair smoke test
@@ -102,10 +112,10 @@ The harness drives the following sequence. Stages 2, 3, and 5–9 invoke the sub
 | Stage | Script | Description |
 |-------|--------|-------------|
 | 0 | harness | Remove and re-create `io/<size>/` |
-| 1 | harness | Download (from Hugging Face if absent) and validate `datasets/face_dataset.npy` |
+| 1 | harness | Provision and validate indexed `datasets/face_dataset.h5` |
 | 2 | submission | `client_key_generation` — generate CKKS keys and persist circuit-specific evaluation keys/model data |
 | 3 | submission | `server_preprocess_model` — validate the persisted input level |
-| 4 | harness | `generate_input.py` — sample face pairs into `datasets/<size>/intermediate/` |
+| 4 | harness | `generate_input.py` - sample row indices and create an indexed input store |
 | 5 | submission | `client_preprocess_input` — face alignment and patch extraction |
 | 6 | submission | `client_encode_encrypt_input` — encode and encrypt patches |
 | 7 | submission | `server_encrypted_compute` - five-slot encrypted face verification |
@@ -119,8 +129,9 @@ Stages 4–10 repeat for each `--num_runs` iteration.
 
 | Path | Written by | Read by |
 |------|-----------|---------|
-| `datasets/face_dataset.npy` | Hugging Face (`halmsu/celeba-1024-pairs`) | harness stage 1, 4 |
-| `datasets/<size>/intermediate/test_pairs.npz` | harness stage 4 | submission stage 5 |
+| `datasets/face_dataset.h5` | harness stage 1 migration, or supplied directly | random-access source for harness stage 4 |
+| `datasets/<size>/intermediate/test_selection.npz` | harness stage 4 | bounded chunk materializer |
+| `datasets/<size>/intermediate/test_pairs.h5` | conventional input materializer | submission stage 5 |
 | `datasets/<size>/intermediate/test_labels.txt` | harness stage 4 | harness stage 10 |
 | `io/<size>/secret_key/sk.h5` | submission stage 2 | client stage 8 only |
 | `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 6, 7, 8 |
@@ -130,7 +141,7 @@ Stages 4–10 repeat for each `--num_runs` iteration.
 | `io/<size>/server_model.json` | server stage 3 | harness, server stage 7 |
 | `io/<size>/submission_reported.json` | optional submission metadata | harness |
 | `io/<size>/provenance.json` | optional submission provenance | harness/results website |
-| `io/<size>/intermediate/*.npy` | submission stage 5 | submission stage 6 |
+| `io/<size>/intermediate/preprocessed_patches.h5` | submission stage 5 | submission stage 6 |
 | `io/<size>/ciphertexts_upload/*.h5` | client stage 6 | server stage 7 |
 | `io/<size>/ciphertexts_download/*.h5` | server stage 7 | client stage 8 |
 | `io/<size>/encrypted_model_predictions.txt` | submission stage 8 | harness stage 10 |
@@ -153,12 +164,15 @@ machine provenance plus any submission-provided provenance object.
 │   ├── utils.py                # Logging, timing, run_exe_or_python
 │   ├── metrics.py              # EER and TAR@FAR calculation
 │   ├── generate_dataset.py     # Download (from HF) + validate dataset
-│   ├── generate_input.py       # Sample face pairs per run
+│   ├── generate_input.py       # Sample face-pair row indices per run
+│   ├── face_dataset_store.py   # Indexed dataset access and legacy migration
+│   ├── materialize_input_store.py # Create the indexed run input
 │   ├── cleartext_impl.py       # ArcFace plaintext reference
 │   └── verify_result.py        # Standalone metric verification
 ├── datasets/                   # Populated on first run from HF (halmsu/celeba-1024-pairs)
 │   ├── face_dataset.npy        # Benchmark dataset (1024 CelebA pairs)
-│   └── face_dataset_labels.txt # Ground-truth labels (0=different, 1=same)
+│   ├── face_dataset_labels.txt # Ground-truth labels (0=different, 1=same)
+│   └── face_dataset.h5         # Generated indexed random-access store
 ├── submission/                 # Reference submission (CryptoFace)
 │   ├── config.yml
 │   ├── common.py

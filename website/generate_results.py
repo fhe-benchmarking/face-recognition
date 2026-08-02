@@ -40,6 +40,7 @@ TIMING_COLUMNS = [
 
 SERVER_COLUMNS = [
     ("Total", "Total (wall)"),
+    ("Persistent process lifetime", "Process lifetime"),
     ("Pipeline load and key setup", "Setup (wall)"),
     ("Packed model I/O", "Model I/O"),
     ("Runtime circuit compilation", "Runtime compile"),
@@ -193,6 +194,9 @@ def _render(size: str, display_name: str, runs: list[dict], date: str) -> str:
             )[:12]),
             ("Slots", _same_path_value(
                 runs, "Provenance", "Submission", "pair_slots"
+            )),
+            ("Chunk", _same_path_value(
+                runs, "Provenance", "Submission", "stage_chunk_pairs"
             )),
             ("R/L", "L"),
             ("Runs", str(len(runs))),

@@ -3,13 +3,13 @@
 cleartext_impl.py - Cleartext reference for the face verification workload
 using ArcFace (InsightFace).
 
-Reads face pairs, runs face detection, alignment, feature extraction and
+Reads the indexed face-pair store, runs face detection and feature extraction,
 computes cosine similarity scores using ArcFace, and writes one score per line.
 Used as the plaintext baseline in quality comparison.
 
-Usage:  python3 cleartext_impl.py <test_pairs_npz> <output_scores_path>
+Usage:  python3 cleartext_impl.py <test_pairs_h5> <output_scores_path>
 
-Input:  test_pairs.npz -- keys pair_NNNNN_img0 / pair_NNNNN_img1, each (3, H, W) uint8 RGB
+Input:  test_pairs.h5 -- encoded image0/image1 arrays in input order
 Output: one cosine similarity float per line
 """
 # Copyright 2025 Google LLC
@@ -27,9 +27,35 @@ Output: one cosine similarity float per line
 
 import sys
 import os
+import warnings
+from contextlib import contextmanager
+import h5py
 import numpy as np
 from pathlib import Path
 from numpy.linalg import norm
+from face_dataset_store import decode_image
+
+
+@contextmanager
+def suppress_native_output():
+    """Suppress native library output while preserving harness logging."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    stdout_fd = os.dup(1)
+    stderr_fd = os.dup(2)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull_fd, 1)
+        os.dup2(devnull_fd, 2)
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(stdout_fd, 1)
+        os.dup2(stderr_fd, 2)
+        os.close(stdout_fd)
+        os.close(stderr_fd)
+        os.close(devnull_fd)
 
 
 def load_arcface():
@@ -68,9 +94,33 @@ def cosine_similarity(e1: np.ndarray, e2: np.ndarray) -> float:
     return float(np.dot(e1, e2) / denom)
 
 
+def score_pairs(model, pairs, count: int) -> list[float]:
+    """Compute ArcFace cosine similarity for a materialized pair batch."""
+    scores = []
+    for index in range(count):
+        embedding0 = get_embedding(model, pairs[f"pair_{index:05d}_img0"])
+        embedding1 = get_embedding(model, pairs[f"pair_{index:05d}_img1"])
+        scores.append(cosine_similarity(embedding0, embedding1))
+    return scores
+
+
+def score_indexed_pairs(model, pairs, output) -> int:
+    """Score an indexed pair store incrementally and return its pair count."""
+    if not {"image0", "image1"}.issubset(pairs):
+        raise ValueError("Indexed cleartext input is missing image datasets")
+    count = len(pairs["image0"])
+    if len(pairs["image1"]) != count:
+        raise ValueError("Indexed cleartext image counts do not match")
+    for index in range(count):
+        embedding0 = get_embedding(model, decode_image(pairs["image0"][index]))
+        embedding1 = get_embedding(model, decode_image(pairs["image1"][index]))
+        output.write(f"{cosine_similarity(embedding0, embedding1):.6f}\n")
+    return count
+
+
 def main():
     if len(sys.argv) != 3:
-        sys.exit("Usage: cleartext_impl.py <test_pairs_npz> <output_scores_path>")
+        sys.exit("Usage: cleartext_impl.py <test_pairs_h5> <output_scores_path>")
 
     pairs_path  = Path(sys.argv[1])
     output_path = Path(sys.argv[2])
@@ -78,29 +128,17 @@ def main():
     if not pairs_path.exists():
         sys.exit(f"[harness] Error: test pairs not found: {pairs_path}")
 
-    # Keep the benchmark console owned by run_submission.py, consistent with
-    # ml-inference. This also suppresses InsightFace/onnxruntime diagnostics.
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull_fd, 1)
-    os.dup2(devnull_fd, 2)
-    os.close(devnull_fd)
-
-    npz = np.load(pairs_path)
-    n   = len(npz.files) // 2
-
-    print(f"[harness] ArcFace cleartext: {n} pairs, loading model...")
-    rec = load_arcface()
-    print("[harness] Model ready. Computing embeddings...")
-
-    scores = []
-    for i in range(n):
-        emb1 = get_embedding(rec, npz[f'pair_{i:05d}_img0'])
-        emb2 = get_embedding(rec, npz[f'pair_{i:05d}_img1'])
-        scores.append(cosine_similarity(emb1, emb2))
-
+    warnings.filterwarnings(
+        "ignore", category=FutureWarning, module=r"insightface\..*"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(f"{s:.6f}" for s in scores) + "\n")
-    print(f"[harness] ArcFace scores written → {output_path}")
+    temporary = output_path.with_suffix(".txt.tmp")
+    with suppress_native_output():
+        model = load_arcface()
+        with h5py.File(pairs_path, "r") as pairs, temporary.open("w") as output:
+            score_indexed_pairs(model, pairs, output)
+    temporary.replace(output_path)
+    print(f"[harness] ArcFace scores written -> {output_path}")
 
 
 if __name__ == "__main__":
