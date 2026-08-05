@@ -15,7 +15,7 @@
   },
   "Bandwidth": {
     "Public and evaluation keys": "28.8G",
-    "Packed model": "114.1G",
+    "Packed model weights": "114.1G",
     "Encrypted input": "128.1M",
     "Encrypted results": "1.0M"
   },

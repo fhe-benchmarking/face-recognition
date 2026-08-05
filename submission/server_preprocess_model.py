@@ -80,7 +80,7 @@ def main():
             {
                 "schema_version": 1,
                 "Bandwidth": {
-                    "Packed model": cache["files"]["diagonals.h5"]["size_bytes"],
+                    "Packed model weights": cache["files"]["diagonals.h5"]["size_bytes"],
                 },
             },
             indent=2,
