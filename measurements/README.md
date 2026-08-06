@@ -46,6 +46,6 @@ The `Quality` block also contains the encrypted-minus-ArcFace metric gaps. A
 batched run passes the quality criterion when its encrypted EER is no more than
 0.15 above the ArcFace EER on the same sampled pairs.
 
-Run `uv run python website/generate_results.py` after measurements change.
-The generator averages timing and batched quality fields across all
-`results-*.json` files and publishes every field described above.
+Published workload pages and result tables live in the separate
+[`fhe-benchmarking.github.io`](https://github.com/fhe-benchmarking/fhe-benchmarking.github.io/tree/main/face-recognition)
+repository.

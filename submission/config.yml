@@ -13,12 +13,12 @@ cryptoface:
   # L2NormPoly coefficients: a*y^2 + b*y + c ≈ 1/sqrt(y), where y = sum-of-squares of the embedding.
   # Fitted on CelebA face_dataset.npy (SOS range [108, 505], mean=267, std=76).
   l2_poly_coeffs: [3.497142e-07, -3.070292e-04, 1.182291e-01]
-  # Five concurrent pair slots maximize throughput on an otherwise idle 1 TB
-  # machine. Four slots is the safer option when more memory headroom is needed.
-  pair_slots: 5
+  # Ten concurrent pair slots target maximum throughput on an otherwise idle
+  # 1 TB machine. The formal calibration run verifies this setting before use.
+  pair_slots: 10
   # Maximum number of pairs retained in conventional server bookkeeping. This
   # bounds memory even though strict stage boundaries retain all ciphertexts.
-  stage_chunk_pairs: 10
+  stage_chunk_pairs: 50
   # Refresh the aggregation process regularly to release retained Go/FHE memory.
   aggregator_max_pairs: 10
   pair_timeout_s: 3600

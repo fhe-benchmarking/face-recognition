@@ -83,17 +83,16 @@ pair-by-pair, stage 7 retains results for at most `stage_chunk_pairs`, and stage
 encrypted inputs to exist before server evaluation, so conventional
 intermediate disk usage grows with the number of pairs.
 
-`server_encrypted_compute` compiles the pipeline once and pre-forks five
+`server_encrypted_compute` compiles the pipeline once and pre-forks ten
 FHE-quiescent slot managers. Each active slot forks eight one-shot workers (two
 images times four backbones) for one pair, then reaps them before accepting the
 next pair. A separate quiescent manager creates aggregation processes in
 bounded generations of ten pairs. This avoids forking from a process that has
 already executed Go/FHE code and releases retained memory regularly.
 
-Five slots, or at most 40 simultaneous backbone workers, maximize throughput on
-an otherwise idle 1 TB machine. Four slots is the safer setting when additional
-memory headroom is required. The setting is `cryptoface.pair_slots` in
-`config.yml`.
+Ten slots, or at most 80 simultaneous backbone workers, are the formally
+validated setting on an otherwise idle 1 TB machine. Reduce
+`cryptoface.pair_slots` in `config.yml` when less memory is available.
 
 The stage writes `io/<size>/server_reported.json` with encrypted-compute wall
 time, packed-model I/O, ciphertext I/O, and separate encrypted-inference

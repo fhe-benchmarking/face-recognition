@@ -94,16 +94,6 @@ def cosine_similarity(e1: np.ndarray, e2: np.ndarray) -> float:
     return float(np.dot(e1, e2) / denom)
 
 
-def score_pairs(model, pairs, count: int) -> list[float]:
-    """Compute ArcFace cosine similarity for a materialized pair batch."""
-    scores = []
-    for index in range(count):
-        embedding0 = get_embedding(model, pairs[f"pair_{index:05d}_img0"])
-        embedding1 = get_embedding(model, pairs[f"pair_{index:05d}_img1"])
-        scores.append(cosine_similarity(embedding0, embedding1))
-    return scores
-
-
 def score_indexed_pairs(model, pairs, output) -> int:
     """Score an indexed pair store incrementally and return its pair count."""
     if not {"image0", "image1"}.issubset(pairs):

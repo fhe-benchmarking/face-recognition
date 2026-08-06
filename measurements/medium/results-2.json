@@ -1,22 +1,25 @@
 {
   "Timing": {
-    "Test dataset generation": "0.4195s",
-    "Key Generation": "31.3905s",
-    "Encrypted model preprocessing": "4.4855s",
-    "Input generation": "8.0898s",
-    "Input preprocessing": "318.3973s",
-    "Input encryption": "661.9896s",
-    "Encrypted computation": "18515.8228s",
-    "Result decryption": "59.794s",
-    "Result postprocessing": "0.026s",
-    "Harness: Run inference for harness plaintext model": "316.494s",
-    "Harness: Run quality check": "0.0019s",
-    "Total": "19916.9109s"
+    "Test dataset generation": "0.4155s",
+    "Key Generation": "514.6954s",
+    "Encrypted model preprocessing": "747.1625s",
+    "Input generation": "12.6379s",
+    "Input preprocessing": "259.3734s",
+    "Input encryption": "731.2414s",
+    "Encrypted computation": "9316.0594s",
+    "Result decryption": "80.4545s",
+    "Result postprocessing": "0.0258s",
+    "Harness: Run inference for harness plaintext model": "234.0438s",
+    "Harness: Run quality check": "0.0041s",
+    "Offline setup total": "1262.2734s",
+    "Online evaluation total": "10633.8404s",
+    "Total": "11896.1138s"
   },
   "Bandwidth": {
     "Public and evaluation keys": "28.8G",
+    "Packed model weights": "114.1G",
     "Encrypted input": "32.0G",
-    "Encrypted results": "1.5G"
+    "Encrypted results": "258.6M"
   },
   "Quality": {
     "Encrypted model quality": {
@@ -38,13 +41,69 @@
       "passed": true
     }
   },
+  "Provenance": {
+    "Harness environment": {
+      "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.39",
+      "python": "3.12.12",
+      "cpu_model": "AMD EPYC 7502 32-Core Processor",
+      "logical_cpu_count": 128,
+      "memory_bytes": 1082015236096
+    },
+    "Submission": {
+      "schema_version": 1,
+      "model": {
+        "hf_repo": "halmsu/cryptoface-v1",
+        "hf_file": "backbone-64x64.ckpt",
+        "sha256": "e5b54e31c392959f79715aefe056aa8428a637f7196512fb3fded10d369dbe9c"
+      },
+      "dataset": {
+        "hf_repo": "halmsu/celeba-1024-pairs",
+        "indexed_data_sha256": "fa11020b308a5f48d91942a49fe3235a452167603e3aed6d53c2320938f1cc7d",
+        "legacy_data_sha256": "51c6b80e5bbffa32c17ed436aa9a5c928d2e9e673a986599ffb2199c827b12a1",
+        "legacy_labels_sha256": "57f975ce8b9f3811f2c503aa68ab69cf4deaacdce089c7f5a5e68adda143e27e"
+      },
+      "orion_commit": "7e27281354f9ac5ffd0cf4330fee2bbea75a9dc7",
+      "orion_config_sha256": "874c289aad1508142e26d3ec2154e31a27dda604342d93b4ca4f7fd127b6e84f",
+      "circuit_manifest_sha256": "0d4bc5f2f33d342407e4f1b66ef1eab97ad64d0b0735b6858661b55d98bdfa1f",
+      "pair_slots": 10,
+      "stage_chunk_pairs": 50,
+      "aggregator_max_pairs": 10,
+      "packed_model_sha256": "fc530f9276e1c85c8a3cf953597cc71610d3810ab021900b2669c1ca3c6691ab",
+      "packed_model_size_bytes": 122467924698
+    }
+  },
   "Server Reported": {
-    "Encrypted computation": "16878.3206s",
-    "Total": "18452.863s",
-    "Pipeline load and key setup": "1525.9502s",
-    "Backbone forward worker-seconds": "450598.682s",
-    "Normalization worker-seconds": "1032.1795s",
-    "Inner product worker-seconds": "198.725s",
-    "Mean encrypted wall time per pair": "65.9309s"
+    "Encrypted computation": "7989.5856s",
+    "Total": "9186.4802s",
+    "Persistent process lifetime": "9294.0417s",
+    "Pipeline load and key setup": "1196.8946s",
+    "Packed model I/O": "702.3968s",
+    "Runtime circuit compilation": "488.3619s",
+    "Ciphertext input I/O worker-seconds": "432.1043s",
+    "Ciphertext transport worker-seconds": "106.0739s",
+    "Encrypted inference worker-seconds": "497556.6236s",
+    "Backbone forward worker-seconds": "496887.1573s",
+    "Normalization worker-seconds": "568.0603s",
+    "Inner product worker-seconds": "101.4059s",
+    "Mean encrypted wall time per pair": "31.2093s",
+    "Timing semantics": {
+      "wall_time": [
+        "Encrypted computation",
+        "Total",
+        "Persistent process lifetime",
+        "Pipeline load and key setup",
+        "Packed model I/O",
+        "Runtime circuit compilation",
+        "Mean encrypted wall time per pair"
+      ],
+      "summed_worker_time": [
+        "Ciphertext input I/O worker-seconds",
+        "Ciphertext transport worker-seconds",
+        "Encrypted inference worker-seconds",
+        "Backbone forward worker-seconds",
+        "Normalization worker-seconds",
+        "Inner product worker-seconds"
+      ]
+    }
   }
 }

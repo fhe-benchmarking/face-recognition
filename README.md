@@ -118,7 +118,7 @@ The harness drives the following sequence. Stages 2, 3, and 5–9 invoke the sub
 | 4 | harness | `generate_input.py` - sample row indices and create an indexed input store |
 | 5 | submission | `client_preprocess_input` — face alignment and patch extraction |
 | 6 | submission | `client_encode_encrypt_input` — encode and encrypt patches |
-| 7 | submission | `server_encrypted_compute` - five-slot encrypted face verification |
+| 7 | submission | `server_encrypted_compute` - bounded parallel encrypted face verification |
 | 8 | submission | `client_decrypt_decode` — decrypt similarity scores |
 | 9 | submission | `client_postprocess` — optional postprocessing |
 | 10 | harness | ArcFace baseline, EER/TAR@FAR metrics, and paired comparison |
@@ -140,7 +140,7 @@ Stages 4–10 repeat for each `--num_runs` iteration.
 | `io/server_data/<cache-key>/diagonals.h5` | server stage 3 | server stage 7 |
 | `io/<size>/server_model.json` | server stage 3 | harness, server stage 7 |
 | `io/<size>/submission_reported.json` | optional submission metadata | harness |
-| `io/<size>/provenance.json` | optional submission provenance | harness/results website |
+| `io/<size>/provenance.json` | optional submission provenance | harness/results publication |
 | `io/<size>/intermediate/preprocessed_patches.h5` | submission stage 5 | submission stage 6 |
 | `io/<size>/ciphertexts_upload/*.h5` | client stage 6 | server stage 7 |
 | `io/<size>/ciphertexts_download/*.h5` | server stage 7 | client stage 8 |
@@ -167,8 +167,7 @@ machine provenance plus any submission-provided provenance object.
 │   ├── generate_input.py       # Sample face-pair row indices per run
 │   ├── face_dataset_store.py   # Indexed dataset access and legacy migration
 │   ├── materialize_input_store.py # Create the indexed run input
-│   ├── cleartext_impl.py       # ArcFace plaintext reference
-│   └── verify_result.py        # Standalone metric verification
+│   └── cleartext_impl.py       # ArcFace plaintext reference
 ├── datasets/                   # Populated on first run from HF (halmsu/celeba-1024-pairs)
 │   ├── face_dataset.npy        # Benchmark dataset (1024 CelebA pairs)
 │   ├── face_dataset_labels.txt # Ground-truth labels (0=different, 1=same)
