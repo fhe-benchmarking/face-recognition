@@ -21,8 +21,9 @@ import sys
 import numpy as np
 
 import utils
-from metrics import calculate_face_metrics, compare_to_arcface
+from metrics import compare_to_arcface
 from params import instance_name
+from verify_result import verify_result
 
 
 def main():
@@ -35,10 +36,13 @@ def main():
     harness_dir = params.rootdir / "harness"
     submission_dir = params.rootdir / "submission"
     io_dir = params.iodir()
+
+    # Stage 0: initialize a clean instance I/O directory.
     shutil.rmtree(io_dir, ignore_errors=True)
     io_dir.mkdir(parents=True)
     utils.log_step(0, "Init", True)
 
+    # Stage 1: provision and validate the harness-owned dataset.
     dataset_npy = params.rootdir / "datasets" / "face_dataset.npy"
     subprocess.run(
         [sys.executable, harness_dir / "generate_dataset.py", str(dataset_npy)],
@@ -46,8 +50,11 @@ def main():
     )
     utils.log_step(1, "Test dataset generation")
 
+    # Stage 2: generate client secret and public/evaluation key material.
     utils.run_exe_or_python(submission_dir, "client_key_generation", str(size))
     utils.log_step(2, "Key Generation")
+
+    # Stage 3: preprocess the server-owned model without the secret key.
     utils.run_exe_or_python(submission_dir, "server_preprocess_model")
     utils.log_step(3, "Encrypted model preprocessing")
     utils.log_size(io_dir / "public_keys", "Public and evaluation keys")
@@ -67,6 +74,7 @@ def main():
         if num_runs > 1:
             print(f"\n         [harness] Run {run + 1} of {num_runs}")
 
+        # Stage 4: sample this run's pairs and materialize the input store.
         command = [sys.executable, harness_dir / "generate_input.py", str(size)]
         if seed is not None:
             command.extend([
@@ -79,34 +87,40 @@ def main():
         )
         utils.log_step(4, "Input generation")
 
+        # Stage 5: perform client-side face and tensor preprocessing.
         utils.run_exe_or_python(
             submission_dir, "client_preprocess_input", str(size)
         )
         utils.log_step(5, "Input preprocessing")
+        # Stage 6: encode and encrypt the prepared client input.
         utils.run_exe_or_python(
             submission_dir, "client_encode_encrypt_input", str(size)
         )
         utils.log_step(6, "Input encryption")
         utils.log_size(io_dir / "ciphertexts_upload", "Encrypted input")
+        # Stage 7: evaluate face verification on the encrypted inputs.
         utils.run_exe_or_python(
             submission_dir, "server_encrypted_compute", str(size)
         )
         utils.log_step(7, "Encrypted computation")
         utils.log_size(io_dir / "ciphertexts_download", "Encrypted results")
+        # Stage 8: decrypt and decode the encrypted result scores.
         utils.run_exe_or_python(
             submission_dir, "client_decrypt_decode", str(size)
         )
         utils.log_step(8, "Result decryption")
+        # Stage 9: convert scores to the benchmark's final output format.
         utils.run_exe_or_python(submission_dir, "client_postprocess", str(size))
         utils.log_step(9, "Result postprocessing")
 
+        # Stage 10: validate scores and measure quality against the labels.
         labels = params.get_ground_truth_labels_file()
         encrypted_scores = params.get_encrypted_model_predictions_file()
         harness_scores = params.get_harness_model_predictions_file()
         if not encrypted_scores.exists():
             sys.exit(f"[harness] Error: result file not found: {encrypted_scores}")
 
-        encrypted_metrics = calculate_face_metrics(
+        encrypted_metrics = verify_result(
             labels,
             encrypted_scores,
             "Encrypted model quality",
@@ -119,6 +133,7 @@ def main():
             utils.save_run(run_path, iodir=io_dir)
             continue
 
+        # Stage 10.1: score the same pairs with the ArcFace baseline.
         subprocess.run(
             [
                 sys.executable,
@@ -130,7 +145,8 @@ def main():
         )
         utils.log_step(10.1, "Harness: Run inference for harness plaintext model")
 
-        harness_metrics = calculate_face_metrics(
+        # Stage 10.2: calculate paired metrics and the acceptance verdict.
+        harness_metrics = verify_result(
             labels,
             harness_scores,
             "Harness model quality",

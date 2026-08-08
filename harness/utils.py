@@ -29,8 +29,6 @@ import sys
 import subprocess
 import argparse
 import json
-import os
-import platform
 from datetime import datetime
 from pathlib import Path
 from params import InstanceParams, SINGLE, LARGE
@@ -146,40 +144,6 @@ def log_submission_reported(iodir: Path):
         raise ValueError(f"Invalid submission report {path}: {exc}") from exc
 
 
-def _machine_provenance() -> dict:
-    cpu_model = platform.processor() or "unknown"
-    try:
-        for line in Path("/proc/cpuinfo").read_text().splitlines():
-            if line.lower().startswith("model name"):
-                cpu_model = line.split(":", 1)[1].strip()
-                break
-    except OSError:
-        pass
-    page_size = os.sysconf("SC_PAGE_SIZE")
-    physical_pages = os.sysconf("SC_PHYS_PAGES")
-    return {
-        "platform": platform.platform(),
-        "python": platform.python_version(),
-        "cpu_model": cpu_model,
-        "logical_cpu_count": os.cpu_count(),
-        "memory_bytes": page_size * physical_pages,
-    }
-
-
-def _submission_provenance(iodir: Path | None) -> dict:
-    if iodir is None:
-        return {}
-    path = iodir / "provenance.json"
-    if not path.exists():
-        return {}
-    try:
-        value = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        raise ValueError(f"Invalid submission provenance {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"Submission provenance must be an object: {path}")
-    return value
-
 def submission_command(base, file_name, *args):
     """Resolve a Python or compiled submission stage into an argv list."""
     py = base / f"{file_name}.py"
@@ -211,6 +175,7 @@ def human_readable_size(n: int) -> str:
             return f"{n:.1f}{unit}"
         n /= 1024
     return f"{n:.1f}P"
+
 
 def _read_server_reported(iodir: Path) -> dict:
     """
@@ -268,11 +233,6 @@ def save_run(path: Path, iodir: Path | None = None):
     }
     if _model_quality:
         data["Quality"] = _model_quality
-    data["Provenance"] = {
-        "Harness environment": _machine_provenance(),
-        "Submission": _submission_provenance(iodir),
-    }
-
     # Server-reported timing (fine-grained breakdown of stage 7) when available.
     server_reported = _read_server_reported(iodir) if iodir is not None else {}
     if server_reported:
@@ -293,6 +253,7 @@ def save_run(path: Path, iodir: Path | None = None):
         json.dump(data, f, indent=2)
 
     print("[total latency]", f"{total}s")
+
 
 def log_quality(metrics: dict, tag: str):
     """Store a single score or verification metrics in the quality block."""
