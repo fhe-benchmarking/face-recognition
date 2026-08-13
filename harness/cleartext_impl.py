@@ -36,6 +36,9 @@ from numpy.linalg import norm
 from face_dataset_store import decode_image
 
 
+ARCFACE_DET_SIZE = (640, 640)
+
+
 @contextmanager
 def suppress_native_output():
     """Suppress native library output while preserving harness logging."""
@@ -62,7 +65,10 @@ def load_arcface():
     """Load ArcFace via InsightFace FaceAnalysis (detection + alignment + recognition)."""
     from insightface.app import FaceAnalysis
     app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-    app.prepare(ctx_id=-1)
+    # Keep the quality reference aligned with the submission's explicit
+    # single-scale face detector. InsightFace 1.0 changed the implicit default
+    # to a 128x128 + 640x640 multi-scale pass.
+    app.prepare(ctx_id=-1, det_size=ARCFACE_DET_SIZE)
     return app
 
 

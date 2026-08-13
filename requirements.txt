@@ -3,14 +3,16 @@
 #
 # Install with: uv pip install --python .venv/bin/python -r requirements.txt
 
-numpy>=1.23.5,<2.3
+# Validated image-preprocessing and ArcFace reference stack. Exact versions
+# keep face detection, landmark alignment, and checked-in quality reproducible.
+numpy==2.2.6
 torch
 pyyaml
-opencv-python
-insightface>=0.7
-h5py
-pillow
-onnxruntime>=1.24.2
+opencv-python==5.0.0.93
+insightface==0.7.3
+h5py==3.16.0
+pillow==12.3.0
+onnxruntime==1.24.3
 huggingface_hub>=0.24
 
 # Orion FHE framework (required by the CryptoFace reference submission)

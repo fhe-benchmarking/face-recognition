@@ -39,7 +39,11 @@ Orion is pinned to the revision used by the validated CryptoFace environment.
 
 ```console
 bash scripts/install_python_deps.sh
+source .venv/bin/activate
 ```
+
+Activate `.venv` in each new shell before running the harness. All commands
+below assume that environment is active.
 
 ### Dataset and model (Hugging Face)
 
@@ -82,7 +86,7 @@ repository root. Stages that take a size argument receive `0`, `1`, `2`, or
 on failure and must finish writing its output before it reports success.
 
 ```console
-uv run python harness/run_submission.py -h
+python3 harness/run_submission.py -h
 ```
 
 ```
@@ -103,13 +107,13 @@ options:
 ### Example: single-pair smoke test
 
 ```console
-uv run python harness/run_submission.py 0 --seed 42
+python3 harness/run_submission.py 0 --seed 42
 ```
 
 ### Example: small size, two runs
 
 ```console
-uv run python harness/run_submission.py 1 --seed 3 --num_runs 2
+python3 harness/run_submission.py 1 --seed 3 --num_runs 2
 ```
 
 The four variants contain 1, 128, 256, and 1,024 face pairs. Batched variants
@@ -206,6 +210,12 @@ first verifies the exact score count and rejects non-finite scores. For each
 batched variant, it evaluates the encrypted model and the included ArcFace
 baseline on the same sampled pairs, then sweeps every distinct similarity
 threshold over all pairs. It reports:
+
+Both the reference submission and ArcFace use InsightFace's Buffalo-L detector
+with an explicit single 640x640 detector pass. The submission aligns that
+detector's landmarks into its 64x64 CryptoFace input, while ArcFace performs its
+own aligned recognition crop. Fixing the detector scale avoids
+version-dependent face selection and alignment.
 
 - equal error rate (EER), interpolated where false-accept and false-reject rates
   meet; lower is better;

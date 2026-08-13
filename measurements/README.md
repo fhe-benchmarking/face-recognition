@@ -14,13 +14,14 @@ of those three runs; the single-pair variant is a one-run smoke test.
 ## Submitting
 
 Before submitting, run the single-pair smoke test once and each batched variant
-three times, then commit the resulting files to your fork:
+three times, then commit the resulting files to your fork. These commands assume
+the repository's `.venv` is active as described in the top-level README:
 
 ```console
-uv run python harness/run_submission.py 0                # 1 pair
-uv run python harness/run_submission.py 1 --num_runs 3   # 128 pairs
-uv run python harness/run_submission.py 2 --num_runs 3   # 256 pairs
-uv run python harness/run_submission.py 3 --num_runs 3   # 1024 pairs
+python3 harness/run_submission.py 0                # 1 pair
+python3 harness/run_submission.py 1 --num_runs 3   # 128 pairs
+python3 harness/run_submission.py 2 --num_runs 3   # 256 pairs
+python3 harness/run_submission.py 3 --num_runs 3   # 1024 pairs
 ```
 
 The average of the three batched runs is the number reported for each batched
