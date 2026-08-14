@@ -44,7 +44,7 @@
   "Server Reported": {
     "Encrypted computation": "37363.746s",
     "Total": "38686.3623s",
-    "Persistent process lifetime": "38801.4991s",
+    "Server process lifetime": "38801.4991s",
     "Pipeline load and key setup": "1322.6163s",
     "Packed model I/O": "814.0717s",
     "Runtime circuit compilation": "500.5326s",
@@ -59,7 +59,7 @@
       "wall_time": [
         "Encrypted computation",
         "Total",
-        "Persistent process lifetime",
+        "Server process lifetime",
         "Pipeline load and key setup",
         "Packed model I/O",
         "Runtime circuit compilation",

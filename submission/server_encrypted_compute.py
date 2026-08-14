@@ -364,7 +364,7 @@ def _write_report(
     report = {
         "Encrypted computation": round(compute_s, 4),
         "Total": round(setup_s + compute_s, 4),
-        "Persistent process lifetime": round(process_lifetime_s, 4),
+        "Server process lifetime": round(process_lifetime_s, 4),
         "Pipeline load and key setup": round(setup_s, 4),
         "Packed model I/O": round(setup_details.get("model_io_s", 0.0), 4),
         "Runtime circuit compilation": round(
@@ -383,7 +383,7 @@ def _write_report(
             "wall_time": [
                 "Encrypted computation",
                 "Total",
-                "Persistent process lifetime",
+                "Server process lifetime",
                 "Pipeline load and key setup",
                 "Packed model I/O",
                 "Runtime circuit compilation",
