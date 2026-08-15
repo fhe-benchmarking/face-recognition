@@ -24,8 +24,10 @@ Usage:  python3 generate_dataset.py <dataset_npy_path>
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
+import hashlib
+import json
 import shutil
+import sys
 from pathlib import Path
 from face_dataset_store import (
     STORE_NAME, decode_image, ensure_pair_store, validate_pair_store,
@@ -35,6 +37,36 @@ from face_dataset_store import (
 HF_DATASET_REPO = "halmsu/celeba-1024-pairs"
 DATASET_NPY     = "face_dataset.npy"
 DATASET_LABELS  = "face_dataset_labels.txt"
+DATASET_PROVENANCE = "face_dataset_provenance.json"
+
+
+def _sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_dataset_provenance(dataset_dir: Path, store_path: Path) -> Path:
+    """Record dataset identity in a harness-owned artifact."""
+    provenance = {
+        "schema_version": 1,
+        "hf_repo": HF_DATASET_REPO,
+        "indexed_data_sha256": _sha256_file(store_path),
+    }
+    legacy_data = dataset_dir / DATASET_NPY
+    legacy_labels = dataset_dir / DATASET_LABELS
+    if legacy_data.is_file():
+        provenance["legacy_data_sha256"] = _sha256_file(legacy_data)
+    if legacy_labels.is_file():
+        provenance["legacy_labels_sha256"] = _sha256_file(legacy_labels)
+
+    path = dataset_dir / DATASET_PROVENANCE
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(provenance, indent=2) + "\n")
+    temporary.replace(path)
+    return path
 
 
 def _download_from_hf(dest_dir: Path):
@@ -78,9 +110,11 @@ def main():
     except (OSError, ValueError, KeyError) as exc:
         sys.exit(f"[harness] Error: invalid face dataset: {exc}")
 
+    provenance_path = _write_dataset_provenance(npy_path.parent, store_path)
     n_diff = pair_count - n_same
     print(f"[harness] Face dataset: {pair_count} pairs  example_img_shape={example_shape}  "
           f"same={n_same}  diff={n_diff}")
+    print(f"[harness] Dataset provenance written -> {provenance_path}")
 
 
 if __name__ == "__main__":

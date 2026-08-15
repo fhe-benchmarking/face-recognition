@@ -8,27 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     build_pipeline_server_save, get_face_params, get_repo_root,
-    get_server_model_dir, load_submission_config, mute_logs, sha256_file,
+    get_server_model_dir, load_submission_config, mute_logs,
     validate_cache_manifest, validate_key_cache, write_cache_manifest,
     write_server_model_reference,
 )
-
-
-def _dataset_provenance(params, cfg):
-    """Hash the indexed benchmark source, with legacy source hashes when present."""
-    dataset_dir = params.rootdir / "datasets"
-    indexed_path = dataset_dir / "face_dataset.h5"
-    value = {
-        "hf_repo": cfg["dataset_hf_repo"],
-        "indexed_data_sha256": sha256_file(indexed_path),
-    }
-    legacy_data = dataset_dir / "face_dataset.npy"
-    legacy_labels = dataset_dir / "face_dataset_labels.txt"
-    if legacy_data.is_file():
-        value["legacy_data_sha256"] = sha256_file(legacy_data)
-    if legacy_labels.is_file():
-        value["legacy_labels_sha256"] = sha256_file(legacy_labels)
-    return value
 
 
 def main():
@@ -95,7 +78,6 @@ def main():
             "hf_file": cfg["ckpt_hf_file"],
             "sha256": identity["checkpoint_sha256"],
         },
-        "dataset": _dataset_provenance(params, cfg),
         "orion_commit": cfg["orion_commit"],
         "orion_config_sha256": identity["orion_config_sha256"],
         "circuit_manifest_sha256": identity["circuit_manifest_sha256"],

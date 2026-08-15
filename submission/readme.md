@@ -104,9 +104,12 @@ combined totals.
 Model artifacts are stored once under `io/server_data/<cache-key>/`; the key
 covers the checkpoint, Orion configuration, circuit manifest, and Orion commit.
 Each key/model cache has a completeness manifest with file sizes and SHA-256
-hashes. `io/<size>/provenance.json` records these revisions and hashes together
-with the dataset hash, pair-slot count, and aggregator lifetime. Client/server
-ciphertext exchange uses Orion's non-executable HDF5 format rather than pickle.
+hashes. `io/<size>/provenance.json` records server model/configuration revisions
+and hashes together with the pair-slot count and aggregator lifetime. Dataset
+identity is recorded separately by harness stage 1 in
+`datasets/face_dataset_provenance.json`; server stages never read the cleartext
+dataset. Client/server ciphertext exchange uses Orion's non-executable HDF5
+format rather than pickle.
 
 ---
 
@@ -166,3 +169,5 @@ pairs.
 Configuration knobs live in `config.yml` (`input_size`, `l2_poly_coeffs`,
 `pair_slots`, `stage_chunk_pairs`, aggregator lifetime, and pair timeout) and
 `orion_configs/cryptoface_net4.yml` (CKKS parameters).
+`pair_timeout_s` bounds both encrypted branch generation and aggregation for a
+pair; a timed-out aggregation child is terminated before stage 7 reports failure.

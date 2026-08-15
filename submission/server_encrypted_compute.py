@@ -268,7 +268,7 @@ def _stop(process, connection):
         connection.close()
 
 
-def _aggregator_manager_loop(connection, max_pairs):
+def _aggregator_manager_loop(connection, max_pairs, timeout_s):
     """Create bounded aggregator children from a permanently quiescent parent."""
     ctx = multiprocessing.get_context("fork")
     process = child_connection = None
@@ -287,6 +287,21 @@ def _aggregator_manager_loop(connection, max_pairs):
                 )
                 generation_pairs = 0
             child_connection.send(command)
+            if not child_connection.poll(timeout_s):
+                pair_idx = command.get("pair_idx", "unknown")
+                _stop(process, child_connection)
+                process = child_connection = None
+                generation_pairs = 0
+                connection.send({
+                    "status": "fail",
+                    "type": "TimeoutError",
+                    "message": (
+                        f"Pair {pair_idx} aggregation timed out after "
+                        f"{timeout_s}s"
+                    ),
+                    "traceback": "",
+                })
+                continue
             response = child_connection.recv()
             connection.send(response)
             generation_pairs += 1
@@ -417,7 +432,7 @@ def _create_workers(ctx, slot_count, timeout_s, aggregator_max_pairs):
             "started": None,
         })
     aggregator, aggregator_connection = _start(
-        ctx, _aggregator_manager_loop, aggregator_max_pairs
+        ctx, _aggregator_manager_loop, aggregator_max_pairs, timeout_s
     )
     return slots, aggregator, aggregator_connection
 

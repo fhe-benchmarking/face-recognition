@@ -8,7 +8,6 @@ cryptoface:
   orion_config:   "submission/orion_configs/cryptoface_net4.yml"
   circuit_manifest: "submission/circuit_manifest.json"
   orion_commit: "7e27281354f9ac5ffd0cf4330fee2bbea75a9dc7"
-  dataset_hf_repo: "halmsu/celeba-1024-pairs"
   input_size:     64
   # L2NormPoly coefficients: a*y^2 + b*y + c ≈ 1/sqrt(y), where y = sum-of-squares of the embedding.
   # Fitted on CelebA face_dataset.npy (SOS range [108, 505], mean=267, std=76).
@@ -21,4 +20,5 @@ cryptoface:
   stage_chunk_pairs: 50
   # Refresh the aggregation process regularly to release retained Go/FHE memory.
   aggregator_max_pairs: 10
+  # Bound both encrypted branch generation and aggregation for one pair.
   pair_timeout_s: 3600

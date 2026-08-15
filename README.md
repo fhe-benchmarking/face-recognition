@@ -161,18 +161,19 @@ and encrypted results may cross the client/server boundary.
 | Path | Written by | Read by |
 |------|-----------|---------|
 | `datasets/face_dataset.h5` | harness stage 1 migration, or supplied directly | random-access source for harness stage 4 |
+| `datasets/face_dataset_provenance.json` | harness stage 1 | local audit only; never read by server stages |
 | `datasets/<size>/intermediate/test_selection.npz` | harness stage 4 | bounded chunk materializer |
 | `datasets/<size>/intermediate/test_pairs.h5` | conventional input materializer | submission stage 5 |
 | `datasets/<size>/intermediate/test_labels.txt` | harness stage 4 | harness stage 10 |
 | `io/<size>/secret_key/sk.h5` | submission stage 2 | client stage 8 only |
-| `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 6, 7, 8 |
+| `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 3, 6, 7, 8 |
 | `submission/circuit_manifest.json` | submission | client stage 2, server stages 3 and 7 |
 | `io/<size>/public_keys/input_level.txt` | client stage 2 | server stage 3, client stage 6 |
 | `io/server_data/<cache-key>/diagonals.h5` | server stage 3 | server stage 7 |
 | `io/<size>/server_model.json` | server stage 3 | server stage 7 |
 | `io/<size>/submission_reported.json` | submission (optional) | harness |
 | `io/<size>/server_reported.json` | submission stage 7 (optional) | harness |
-| `io/<size>/provenance.json` | reference submission stage 3 | local audit only; not copied into measurement JSON |
+| `io/<size>/provenance.json` | reference submission stage 3 | server model/configuration audit only; not copied into measurement JSON |
 | `io/<size>/intermediate/preprocessed_patches.h5` | submission stage 5 | submission stage 6 |
 | `io/<size>/ciphertexts_upload/*.h5` | client stage 6 | server stage 7 |
 | `io/<size>/ciphertexts_download/*.h5` | server stage 7 | client stage 8 |
@@ -256,7 +257,8 @@ python3 harness/verify_result.py <labels-file> <scores-file> [tag]
 │   ├── .gitkeep                # Keep the initially empty directory in Git
 │   ├── face_dataset.npy        # Downloaded legacy dataset (1,024 CelebA pairs)
 │   ├── face_dataset_labels.txt # Downloaded ground-truth labels
-│   └── face_dataset.h5         # Generated indexed random-access store
+│   ├── face_dataset.h5         # Generated indexed random-access store
+│   └── face_dataset_provenance.json # Generated harness-owned dataset hashes
 ├── submission/                 # Reference submission (CryptoFace)
 │   ├── config.yml
 │   ├── common.py
