@@ -58,18 +58,6 @@ def main():
             f"Client/server input-level mismatch: {client_level} != {input_level}"
         )
     write_server_model_reference(params, model_dir, cache)
-    (params.iodir() / "submission_reported.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "Bandwidth": {
-                    "Packed model weights": cache["files"]["diagonals.h5"]["size_bytes"],
-                },
-            },
-            indent=2,
-        )
-        + "\n"
-    )
 
     provenance = {
         "schema_version": 1,
