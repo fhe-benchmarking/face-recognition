@@ -1,22 +1,25 @@
 {
   "Timing": {
-    "Test dataset generation": "0.452s",
-    "Key Generation": "27.3388s",
-    "Encrypted model preprocessing": "4.5685s",
-    "Input generation": "3.1857s",
-    "Input preprocessing": "156.7971s",
-    "Input encryption": "332.9137s",
-    "Encrypted computation": "9407.486s",
-    "Result decryption": "39.0599s",
-    "Result postprocessing": "0.0275s",
-    "Harness: Run inference for harness plaintext model": "145.9459s",
-    "Harness: Run quality check": "0.002s",
-    "Total": "10117.777s"
+    "Test dataset generation": "0.2914s",
+    "Key Generation": "502.5237s",
+    "Encrypted model preprocessing": "651.7657s",
+    "Input generation": "0.7827s",
+    "Input preprocessing": "94.9155s",
+    "Input encryption": "428.0813s",
+    "Encrypted computation": "5847.2076s",
+    "Result decryption": "151.0012s",
+    "Result postprocessing": "0.0236s",
+    "Harness: Run inference for harness plaintext model": "189.3413s",
+    "Harness: Run quality check": "0.0053s",
+    "Offline setup total": "1154.5808s",
+    "Online evaluation total": "6711.3586s",
+    "Total": "7865.9394s"
   },
   "Bandwidth": {
-    "Public and evaluation keys": "9.5M",
+    "Public and evaluation keys": "28.8G",
+    "Packed model weights": "114.1G",
     "Encrypted input": "16.0G",
-    "Encrypted results": "768.1M"
+    "Encrypted results": "129.3M"
   },
   "Quality": {
     "Encrypted model quality": {
@@ -39,12 +42,37 @@
     }
   },
   "Server Reported": {
-    "Encrypted computation": "7786.9412s",
-    "Total": "9349.6187s",
-    "Pipeline load and key setup": "1513.6876s",
-    "Backbone forward worker-seconds": "193603.1233s",
-    "Normalization worker-seconds": "537.6565s",
-    "Inner product worker-seconds": "102.9851s",
-    "Mean encrypted wall time per pair": "60.8355s"
+    "Encrypted computation": "4480.3441s",
+    "Total": "5678.1265s",
+    "Server process lifetime": "5791.8558s",
+    "Pipeline load and key setup": "1197.7825s",
+    "Packed model I/O": "706.4809s",
+    "Runtime circuit compilation": "485.0362s",
+    "Ciphertext input I/O worker-seconds": "252.9768s",
+    "Ciphertext transport worker-seconds": "64.3468s",
+    "Encrypted inference worker-seconds": "278566.0267s",
+    "Backbone forward worker-seconds": "278190.2245s",
+    "Normalization worker-seconds": "318.2105s",
+    "Inner product worker-seconds": "57.5917s",
+    "Mean encrypted wall time per pair": "35.0027s",
+    "Timing semantics": {
+      "wall_time": [
+        "Encrypted computation",
+        "Total",
+        "Server process lifetime",
+        "Pipeline load and key setup",
+        "Packed model I/O",
+        "Runtime circuit compilation",
+        "Mean encrypted wall time per pair"
+      ],
+      "summed_worker_time": [
+        "Ciphertext input I/O worker-seconds",
+        "Ciphertext transport worker-seconds",
+        "Encrypted inference worker-seconds",
+        "Backbone forward worker-seconds",
+        "Normalization worker-seconds",
+        "Inner product worker-seconds"
+      ]
+    }
   }
 }

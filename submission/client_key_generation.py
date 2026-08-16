@@ -1,63 +1,48 @@
 #!/usr/bin/env python3
-"""
-client_key_generation.py — FHE key generation.
-
-Generates CKKS keys via orion.init_scheme(io_mode=save).
-Does NOT call fit or compile — server_encrypted_compute handles that.
-Also saves a fit_sample.npy for server_encrypted_compute to use.
-"""
+"""Generate client keys from the public circuit manifest, without model access."""
 import sys
 import time
-import numpy as np
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
-    parse_stage_args,
-    load_detector, preprocess_one_image, init_orion_scheme,
-    decode_master_image,
+    parse_stage_args, init_orion_scheme, load_circuit_manifest,
+    sha256_file, write_cache_manifest,
 )
 
 
 def main():
-    size, cfg, params = parse_stage_args()
+    size, cfg, params = parse_stage_args(resolve_checkpoint=False)
     t0 = time.time()
 
     keys_dir = params.iodir() / "public_keys"
     keys_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write current_size.txt for server_preprocess_model (which has no args)
     (params.rootdir / "io").mkdir(parents=True, exist_ok=True)
     (params.rootdir / "io" / "current_size.txt").write_text(str(size))
-
-    dataset_path = params.rootdir / "datasets" / "face_dataset.npy"
-    if not dataset_path.exists():
-        print(f"[client_key_generation] ERROR: master dataset not found: {dataset_path}", flush=True)
-        sys.exit(1)
-
-    print("[client_key_generation] Loading master dataset for fit sample...", flush=True)
-    dataset = np.load(dataset_path, allow_pickle=True)
-    # orion.fit() only needs the tensor shape, not specific values; one image is sufficient.
-    # Master dataset stores JPEG bytes (see decode_master_image); decode to (3, H, W) uint8 RGB.
-    img0 = decode_master_image(dataset[0][0])  # first image of first pair
-
-    print("[client_key_generation] Detecting + aligning face for fit sample...", flush=True)
-    detector = load_detector()
-    patches = preprocess_one_image(detector, img0, cfg["input_size"])
-
-    fit_arr = np.stack([p.numpy() for p in patches], axis=0)  # (N, 1, 3, 32, 32)
-    fit_path = keys_dir / "fit_sample.npy"
-    np.save(fit_path, fit_arr)
-    print(f"[client_key_generation] fit_sample.npy saved ({len(patches)} patches) → {fit_path}", flush=True)
-
-    t_keygen = time.time()
-    init_orion_scheme(cfg, params, "save")
-    elapsed_keygen = time.time() - t_keygen
-
-    elapsed = time.time() - t0
-    print(f"[client_key_generation] CKKS keys saved in {elapsed_keygen:.1f}s  "
-          f"total={elapsed:.1f}s", flush=True)
-    print(f"[client_key_generation] Keys → {keys_dir / 'keys.h5'}", flush=True)
+    print("[keygen] Generating keys from circuit manifest...", flush=True)
+    import orion
+    init_orion_scheme(cfg, params, "save", "none")
+    circuit_manifest = load_circuit_manifest(cfg)
+    orion.generate_keys_from_manifest(circuit_manifest)
+    input_level = int(circuit_manifest["circuit"]["input_level"])
+    (keys_dir / "input_level.txt").write_text(str(input_level))
+    metadata = {
+        "circuit_manifest_sha256": sha256_file(Path(cfg["circuit_manifest"])),
+        "orion_commit": cfg["orion_commit"],
+        "input_level": input_level,
+    }
+    print("[keygen] Hashing and validating generated key artifacts...", flush=True)
+    write_cache_manifest(keys_dir, ["keys.h5", "input_level.txt"], metadata)
+    write_cache_manifest(
+        params.iodir() / "secret_key", ["sk.h5"],
+        {"orion_commit": cfg["orion_commit"]},
+    )
+    print(
+        f"[keygen] Complete in {time.time()-t0:.1f}s "
+        f"(input_level={input_level})",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

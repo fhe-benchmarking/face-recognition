@@ -5,11 +5,10 @@ utils.py - Harness utilities for argument parsing, logging, and results saving.
 Provides:
   - parse_submission_arguments(): CLI argument parsing
   - ensure_directories():         validate required repo subdirectories
-  - build_submission():           build submission via its build_task.sh
   - run_exe_or_python():          run a stage as Python script or compiled binary
   - log_step():                   print per-stage elapsed time
   - log_size():                   print and record directory sizes
-  - log_quality():                record quality metrics (EER, TAR@FAR)
+  - log_quality():                record a single score or EER/TAR@FAR metrics
   - save_run():                   write per-run JSON results to measurements/
   - reset_run_state():            clear accumulated per-run state between runs
 """
@@ -33,7 +32,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 from params import InstanceParams, SINGLE, LARGE
-from typing import Tuple
 
 # Global variable to track the last timestamp
 _last_timestamp: datetime = None
@@ -52,7 +50,9 @@ _onetime_bandwidth = {}
 # Global variable to store model quality metrics
 _model_quality = {}
 
-def parse_submission_arguments(workload: str) -> Tuple[int, InstanceParams, int, int, int]:
+def parse_submission_arguments(
+    workload: str,
+) -> tuple[int, InstanceParams, int, int]:
     """
     Get the arguments of the submission. Populate arguments as needed for the workload.
     """
@@ -65,17 +65,8 @@ def parse_submission_arguments(workload: str) -> Tuple[int, InstanceParams, int,
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed for reproducible pair sampling (default: 42). '
                              'Fixed by default so all submissions sample identical pairs.')
-    parser.add_argument('--clrtxt', type=int,
-                        help='Set to 1 to force rerun of cleartext reference')
     args = parser.parse_args()
-    size = args.size
-    seed = args.seed
-    num_runs = args.num_runs
-    clrtxt = args.clrtxt
-
-    # Use params.py to get instance parameters
-    params = InstanceParams(size)
-    return size, params, seed, num_runs, clrtxt
+    return args.size, InstanceParams(args.size), args.seed, args.num_runs
 
 def ensure_directories(rootdir: Path):
     """ Check that the current directory has sub-directories
@@ -86,13 +77,6 @@ def ensure_directories(rootdir: Path):
             print(f"Error: Required directory '{dir_name}'",
                   f"not found in {rootdir}")
             sys.exit(1)
-
-def build_submission(script_dir: Path):
-    """
-    Build the submission. Fetching dependencies and compiling is 
-    delegated entirely to the submission's build_task.sh.
-    """
-    subprocess.run([script_dir / "build_task.sh", "./submission"], check=True)
 
 def log_step(step_num: int, step_name: str, start: bool = False):
     """
@@ -120,8 +104,8 @@ def log_step(step_num: int, step_name: str, start: bool = False):
         _timestampsStr[step_name] = f"{round(elapsed_seconds, 4)}s"
         _timestamps[step_name] = elapsed_seconds
 
-def log_size(path: Path, object_name: str, flag: bool = False, previous: int = 0):
-    """Print and record the disk size of a directory. If flag=True, subtracts previous bytes."""
+def log_size(path: Path, object_name: str):
+    """Print and record a path's disk usage."""
     global _bandwidth
     
     # Check if the path exists before trying to calculate size
@@ -132,30 +116,56 @@ def log_size(path: Path, object_name: str, flag: bool = False, previous: int = 0
     
     size = int(subprocess.run(["du", "-sb", path], check=True,
                            capture_output=True, text=True).stdout.split()[0])
-    if(flag):
-        size -= previous
-    
     print("         [harness]", object_name, "size:", human_readable_size(size))
-
     _bandwidth[object_name] = human_readable_size(size)
     return size
 
-def run_exe_or_python(base, file_name, *args, check=True):
+
+def log_submission_reported(iodir: Path):
+    """Record optional, submission-defined artifact sizes via a generic schema."""
+    global _bandwidth
+    path = iodir / "submission_reported.json"
+    if not path.exists():
+        return
+    try:
+        reported = json.loads(path.read_text())
+        bandwidth = reported.get("Bandwidth", {})
+        if not isinstance(bandwidth, dict):
+            raise ValueError("Bandwidth must be an object")
+        for name, byte_count in bandwidth.items():
+            if not isinstance(name, str) or not isinstance(byte_count, int):
+                raise ValueError("Bandwidth entries must map strings to integer bytes")
+            if byte_count < 0:
+                raise ValueError("Bandwidth byte counts must be non-negative")
+            value = human_readable_size(byte_count)
+            _bandwidth[name] = value
+            print(f"         [submission] {name} size: {value}")
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        raise ValueError(f"Invalid submission report {path}: {exc}") from exc
+
+
+def submission_command(base, file_name, *args):
+    """Resolve a Python or compiled submission stage into an argv list."""
+    py = base / f"{file_name}.py"
+    exe = base / "build" / file_name
+    if py.exists():
+        return [sys.executable, str(py), *args]
+    if exe.exists():
+        return [str(exe), *args]
+    raise FileNotFoundError(f"Neither {py} nor {exe} exists")
+
+
+def run_exe_or_python(base, file_name, *args):
     """
     If {base}/{file_name}.py exists, run it with the current Python interpreter.
     Otherwise, run {base}/build/{file_name} as a compiled executable.
     """
-    py  = base / f"{file_name}.py"
-    exe = base / "build" / file_name
-
-    if py.exists():
-        cmd = [sys.executable, str(py), *args]
-    elif exe.exists():
-        cmd = [str(exe), *args]
-    else:
-        print(f"[harness] Error: neither {py} nor {exe} found")
+    try:
+        cmd = submission_command(base, file_name, *args)
+    except FileNotFoundError as exc:
+        print(f"[harness] Error: {exc}")
         sys.exit(1)
-    subprocess.run(cmd, check=check)
+    subprocess.run(cmd, check=True)
 
 
 def human_readable_size(n: int) -> str:
@@ -165,6 +175,7 @@ def human_readable_size(n: int) -> str:
             return f"{n:.1f}{unit}"
         n /= 1024
     return f"{n:.1f}P"
+
 
 def _read_server_reported(iodir: Path) -> dict:
     """
@@ -188,13 +199,11 @@ def _read_server_reported(iodir: Path) -> dict:
         return {}
 
 
-def save_run(path: Path, size: int = 0, iodir: Path = None):
+def save_run(path: Path, iodir: Path | None = None):
     """
-    Write per-run timing, bandwidth, and (for instance sizes > 0) quality metrics
+    Write per-run timing, bandwidth, and quality metrics
     to a JSON file at the given path, using the ml-inference measurement schema:
     top-level Timing / Bandwidth / Quality / Server Reported keys.
-    Size 0 (single-pair smoke test) omits Quality.
-
     One-time stage timings (key generation, model preprocessing) captured before
     the per-run loop are included in each run's Timing block. Timing["Total"] is
     the sum of one-time and per-run stage latencies.
@@ -207,32 +216,55 @@ def save_run(path: Path, size: int = 0, iodir: Path = None):
     global _onetime_bandwidth
     global _model_quality
 
-    total = round(sum(_onetime_timestamps.values()) + sum(_timestamps.values()), 4)
-    timing = {**_onetime_timestampsStr, **_timestampsStr, "Total": f"{total}s"}
+    offline_total = round(sum(_onetime_timestamps.values()), 4)
+    online_total = round(sum(_timestamps.values()), 4)
+    total = round(offline_total + online_total, 4)
+    timing = {
+        **_onetime_timestampsStr,
+        **_timestampsStr,
+        "Offline setup total": f"{offline_total}s",
+        "Online evaluation total": f"{online_total}s",
+        "Total": f"{total}s",
+    }
 
     data = {
         "Timing": timing,
         "Bandwidth": {**_onetime_bandwidth, **_bandwidth},
     }
-    if size > 0:
+    if _model_quality:
         data["Quality"] = _model_quality
-
     # Server-reported timing (fine-grained breakdown of stage 7) when available.
     server_reported = _read_server_reported(iodir) if iodir is not None else {}
     if server_reported:
+        print(f"         [submission] Server reported steps: {server_reported}")
+        for step_name, value in server_reported.items():
+            displayed = f"{value}s" if isinstance(value, (int, float)) else value
+            print(f"         [submission] {step_name}: {displayed}")
         data["Server Reported"] = {
             k: (f"{v}s" if isinstance(v, (int, float)) else v)
             for k, v in server_reported.items()
         }
+    elif iodir is not None:
+        print(
+            "         [harness] Note: submitters can provide server timings at "
+            f"{iodir / 'server_reported.json'}"
+        )
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
     print("[total latency]", f"{total}s")
 
+
 def log_quality(metrics: dict, tag: str):
-    """Store quality metrics returned by calculate_face_metrics() in the global quality dict."""
+    """Store a single score or verification metrics in the quality block."""
     global _model_quality
     if not metrics:
+        return
+    if "score" in metrics:
+        _model_quality[tag] = {
+            "score": metrics["score"],
+            "label": metrics["label"],
+        }
         return
     _model_quality[tag] = {
         "eer":              metrics["eer"],
@@ -254,7 +286,8 @@ def reset_run_state():
     (dataset validation, key generation, model preprocessing) are moved into the
     one-time store so they persist across runs and appear in every results file.
     """
-    global _timestamps, _timestampsStr, _bandwidth, _model_quality
+    global _timestamps, _timestampsStr, _bandwidth
+    global _model_quality
     global _onetime_timestamps, _onetime_timestampsStr
     global _onetime_bandwidth
     if not _onetime_timestamps and _timestamps:

@@ -6,12 +6,10 @@ under **RNS-CKKS**, using the [Orion](https://github.com/vboddeti/orion) compile
 with the [Lattigo](https://github.com/tuneinsight/lattigo) backend.
 
 The server evaluates CryptoFace on encrypted patches and returns an encrypted
-similarity score. Orion's current key-persistence API serializes the secret key
-and reloads it in each stage process, so this single-machine benchmark is not a
-production client/server trust boundary: the stage-7 process can access
-`keys.h5`, even though production evaluation disables Orion debug mode and never
-calls decryption. A deployed service must extend Orion to serialize and load
-public/evaluation keys independently while keeping the secret key client-side.
+similarity score. Key material is separated by role: the client keeps
+`secret_key/sk.h5`, while the server receives `public_keys/keys.h5` containing
+only the public, relinearization, rotation, and bootstrapping evaluation keys.
+The server process initializes Orion with `load_secret_key=False`.
 
 ---
 
@@ -67,31 +65,51 @@ downloaded automatically on first use (see `common.load_submission_config`).
 
 ## 2. Encrypted inference pipeline
 
-The submission implements the harness's client/server stages (`submission/*.py`):
+The submission retains the benchmark's conventional client/server entry points:
 
 | Stage | Script | Role |
 |------:|--------|------|
-| 2 | `client_key_generation` | Generates the Orion secret-key file and fit sample used by the benchmark stage processes. |
-| 3 | `server_preprocess_model` | Harness-compatible preprocessing stub; model compilation is performed once at the start of stage 7. |
+| 2 | `client_key_generation` | Generates the private and public/evaluation keys from the checked-in circuit manifest. It neither resolves nor loads the checkpoint. |
+| 3 | `server_preprocess_model` | Loads the checkpoint on the server, compiles and packs model diagonals, validates the circuit manifest, and writes a hashed persistent cache. |
 | 5 | `client_preprocess_input` | Client aligns each face (InsightFace) and extracts the 32×32 patches. |
-| 6 | `client_encode_encrypt_input` | Client CKKS-encodes and encrypts the patch tensors. |
-| 7 | `server_encrypted_compute` | Server compiles/loads the Orion circuit once, evaluates encrypted pairs with bounded process lifetimes, and returns encrypted scores. |
+| 6 | `client_encode_encrypt_input` | Client CKKS-encodes and encrypts patch tensors into versioned HDF5 ciphertext files. |
+| 7 | `server_encrypted_compute` | Server loads the Orion circuit and evaluation keys without the secret key, evaluates encrypted pairs with bounded process lifetimes, and returns encrypted scores. |
 | 8 | `client_decrypt_decode` | Client decrypts the scalar similarity scores. |
 
-`server_encrypted_compute` compiles the pipeline once and pre-forks five
+The conventional path is memory-bounded: stage 5 reads encoded images from an
+indexed HDF5 input and writes one chunked HDF5 patch store, stage 6 encrypts it
+pair-by-pair, stage 7 retains results for at most `stage_chunk_pairs`, and stage
+8 decrypts scores incrementally. Strict stage boundaries still require all
+encrypted inputs to exist before server evaluation, so conventional
+intermediate disk usage grows with the number of pairs.
+
+`server_encrypted_compute` compiles the pipeline once and pre-forks ten
 FHE-quiescent slot managers. Each active slot forks eight one-shot workers (two
 images times four backbones) for one pair, then reaps them before accepting the
 next pair. A separate quiescent manager creates aggregation processes in
 bounded generations of ten pairs. This avoids forking from a process that has
 already executed Go/FHE code and releases retained memory regularly.
 
-Five slots, or at most 40 simultaneous backbone workers, maximize throughput on
-an otherwise idle 1 TB machine. Four slots is the safer setting when additional
-memory headroom is required. The setting is `cryptoface.pair_slots` in
-`config.yml`.
+Ten slots, or at most 80 simultaneous backbone workers, are the formally
+validated setting on an otherwise idle 1 TB machine. Reduce
+`cryptoface.pair_slots` in `config.yml` when less memory is available.
 
 The stage writes `io/<size>/server_reported.json` with encrypted-compute wall
-time, pipeline setup, and backbone/normalization/inner-product timing.
+time, packed-model I/O, ciphertext I/O, and separate encrypted-inference
+worker time for the backbone, normalization, and inner product.
+Wall-time and summed-worker-time fields are explicitly classified in that
+report. The harness separately reports offline setup, online evaluation, and
+combined totals.
+
+Model artifacts are stored once under `io/server_data/<cache-key>/`; the key
+covers the checkpoint, Orion configuration, circuit manifest, and Orion commit.
+Each key/model cache has a completeness manifest with file sizes and SHA-256
+hashes. `io/<size>/provenance.json` records server model/configuration revisions
+and hashes together with the pair-slot count and aggregator lifetime. Dataset
+identity is recorded separately by harness stage 1 in
+`datasets/face_dataset_provenance.json`; server stages never read the cleartext
+dataset. Client/server ciphertext exchange uses Orion's non-executable HDF5
+format rather than pickle.
 
 ---
 
@@ -124,10 +142,8 @@ secret (`H = 192`) is the Lattigo bootstrapping default and is accounted for in
 Lattigo's security estimate (which considers sparse-secret / hybrid attacks);
 the resulting parameter set targets **≥128 bits** of classical security.
 
-This parameter-security claim concerns the CKKS/Ring-LWE primitive. It does not
-remove the process-isolation limitation above: access to the serialized secret
-key bypasses cryptographic security entirely, so `keys.h5` must not be exposed
-to an untrusted server in a production deployment.
+The serialized secret key is confined to `io/<size>/secret_key/`; it is not
+stored in `public_keys/keys.h5` or loaded by the encrypted server stage.
 
 ---
 
@@ -151,5 +167,7 @@ criterion allows at most a 0.15 absolute EER increase over ArcFace on the same
 pairs.
 
 Configuration knobs live in `config.yml` (`input_size`, `l2_poly_coeffs`,
-`pair_slots`, and aggregator lifetime) and
+`pair_slots`, `stage_chunk_pairs`, aggregator lifetime, and pair timeout) and
 `orion_configs/cryptoface_net4.yml` (CKKS parameters).
+`pair_timeout_s` bounds both encrypted branch generation and aggregation for a
+pair; a timed-out aggregation child is terminated before stage 7 reports failure.
