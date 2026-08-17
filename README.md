@@ -169,7 +169,7 @@ and encrypted results may cross the client/server boundary.
 | `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 3, 6, 7, 8 |
 | `submission/circuit_manifest.json` | submission | client stage 2, server stages 3 and 7 |
 | `io/<size>/public_keys/input_level.txt` | client stage 2 | server stage 3, client stage 6 |
-| `io/server_data/<cache-key>/diagonals.h5` | server stage 3 | server stage 7 |
+| `io/server_data/` | submission stage 3 (provider-defined packed-model artifacts) | submission stage 7; harness measurement after stage 3 |
 | `io/<size>/server_model.json` | server stage 3 | server stage 7 |
 | `io/<size>/server_reported.json` | submission stage 7 (optional) | harness |
 | `io/<size>/provenance.json` | reference submission stage 3 | server model/configuration audit only; not copied into measurement JSON |
@@ -178,6 +178,17 @@ and encrypted results may cross the client/server boundary.
 | `io/<size>/ciphertexts_download/*.h5` | server stage 7 | client stage 8 |
 | `io/<size>/encrypted_model_predictions.txt` | submission stage 8 or 9 | harness stage 10 |
 | `io/<size>/harness_model_predictions.txt` | harness stage 10 | harness stage 10 |
+
+`io/server_data/` is the backend-neutral boundary for persistent server-side
+model artifacts. Stage 3 must create this directory and place every serialized
+artifact required by encrypted inference beneath it. The harness recursively
+measures all regular files in the directory as `Packed model weights`; file
+names, formats, and nesting are chosen by the submission provider. All retained
+content is counted, including auxiliary tables, manifests, and multiple cache
+entries, so providers are responsible for removing stale or unrelated data.
+Symbolic links and other special files are rejected to keep measurements
+self-contained and reproducible. An intentionally empty model directory is
+valid and is reported as `0.0B`, but a missing directory is a contract error.
 
 The stage-4 HDF5 input contains equally sized `image0` and `image1`
 variable-length `uint8` datasets. Each element is an encoded RGB image, and

@@ -58,7 +58,7 @@ def main():
     utils.run_exe_or_python(submission_dir, "server_preprocess_model")
     utils.log_step(3, "Encrypted model preprocessing")
     utils.log_size(io_dir / "public_keys", "Public and evaluation keys")
-    utils.log_size(params.get_server_data_dir(), "Packed model weights")
+    utils.log_server_data_size(params.get_server_data_dir())
 
     rng = np.random.default_rng(seed)
     persistent_io = {path.name for path in io_dir.iterdir()}
