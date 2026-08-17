@@ -195,7 +195,7 @@ form `Online evaluation total`. `Timing["Total"]` is their sum. Values under
 `Server Reported` are optional submission diagnostics and may include both wall
 time and summed worker-seconds; they are not added to the harness total.
 
-`Bandwidth` reports serialized artifact sizes. The harness measures public and evaluation keys, encrypted inputs, encrypted results, and packed model weights from disk.
+`Bandwidth` reports serialized artifact sizes. The harness measures public and evaluation keys, encrypted inputs, encrypted results, and packed model weights (from the `io/server_data` directory) from disk.
 
 Quality is face-verification quality, not classification accuracy. Stage 10
 first verifies the exact score count and rejects non-finite scores. For each
