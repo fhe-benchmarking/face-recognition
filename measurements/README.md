@@ -7,9 +7,7 @@ sub-directory named for the instance size: `single`, `small`, `medium`, or
 Running with `--num_runs <n>` produces `results-1.json` … `results-<n>.json` in
 the corresponding sub-directory.
 
-This repository includes one end-to-end validated single-pair run and three
-validated runs for each batched size. Formal batched reporting uses the average
-of those three runs; the single-pair variant is a one-run smoke test.
+This repository includes measurements run on GCP c3-highmem-176 (176 vCPUs, 1,408 GB Memory).
 
 ## Submitting
 
