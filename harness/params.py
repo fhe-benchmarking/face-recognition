@@ -57,6 +57,10 @@ class InstanceParams:
         """Return the I/O directory path."""
         return self.rootdir / "io" / instance_name(self.size)
 
+    def get_server_data_dir(self):
+        """Return the shared server data directory path."""
+        return self.rootdir / "io" / "server_data"
+
     def io_intermediate_dir(self):
         """Return the intermediate directory path."""
         return self.iodir() / "intermediate"

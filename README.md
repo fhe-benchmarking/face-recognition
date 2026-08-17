@@ -169,9 +169,8 @@ and encrypted results may cross the client/server boundary.
 | `io/<size>/public_keys/keys.h5` | submission stage 2 | submission stages 3, 6, 7, 8 |
 | `submission/circuit_manifest.json` | submission | client stage 2, server stages 3 and 7 |
 | `io/<size>/public_keys/input_level.txt` | client stage 2 | server stage 3, client stage 6 |
-| `io/server_data/<cache-key>/diagonals.h5` | server stage 3 | server stage 7 |
+| `io/server_data/` | submission stage 3 (provider-defined packed-model artifacts) | submission stage 7; harness measurement after stage 3 |
 | `io/<size>/server_model.json` | server stage 3 | server stage 7 |
-| `io/<size>/submission_reported.json` | submission (optional) | harness |
 | `io/<size>/server_reported.json` | submission stage 7 (optional) | harness |
 | `io/<size>/provenance.json` | reference submission stage 3 | server model/configuration audit only; not copied into measurement JSON |
 | `io/<size>/intermediate/preprocessed_patches.h5` | submission stage 5 | submission stage 6 |
@@ -180,17 +179,20 @@ and encrypted results may cross the client/server boundary.
 | `io/<size>/encrypted_model_predictions.txt` | submission stage 8 or 9 | harness stage 10 |
 | `io/<size>/harness_model_predictions.txt` | harness stage 10 | harness stage 10 |
 
+`io/server_data/` is the backend-neutral boundary for persistent server-side
+model artifacts. Stage 3 must create this directory and place every serialized
+artifact required by encrypted inference beneath it. The harness recursively
+measures the complete directory as `Packed model weights`; file names, formats,
+and nesting are chosen by the submission provider. All retained content is
+counted, including auxiliary tables, manifests, and multiple cache entries, so
+providers are responsible for removing stale or unrelated data.
+
 The stage-4 HDF5 input contains equally sized `image0` and `image1`
 variable-length `uint8` datasets. Each element is an encoded RGB image, and
 rows retain benchmark input order. The labels file contains one `0` (impostor)
 or `1` (genuine) label per pair in the same order.
 
-The harness treats `submission_reported.json` generically. Its optional
-`Bandwidth` object maps artifact labels to non-negative integer byte counts; it
-does not interpret submission-specific paths or cache layouts. A submission may
-also write `server_reported.json`, mapping timing labels to numeric seconds with
-nested metadata allowed. These reports supplement rather than replace the
-harness's own wall-time and artifact-size measurements.
+A submission may also write `server_reported.json`, mapping timing labels to numeric seconds with nested metadata allowed. These reports supplement rather than replace the harness's own wall-time measurements.
 
 ## Performance and quality measurement
 
@@ -201,10 +203,7 @@ form `Online evaluation total`. `Timing["Total"]` is their sum. Values under
 `Server Reported` are optional submission diagnostics and may include both wall
 time and summed worker-seconds; they are not added to the harness total.
 
-`Bandwidth` reports serialized artifact sizes. The harness measures public and
-evaluation keys, encrypted inputs, and encrypted results from disk. Submissions
-can report additional serialized artifacts, such as packed model weights,
-through `submission_reported.json`.
+`Bandwidth` reports serialized artifact sizes. The harness measures public and evaluation keys, encrypted inputs, encrypted results, and packed model weights (from the `io/server_data` directory) from disk.
 
 Quality is face-verification quality, not classification accuracy. Stage 10
 first verifies the exact score count and rejects non-finite scores. For each

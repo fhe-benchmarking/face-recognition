@@ -45,7 +45,7 @@ _onetime_timestamps = {}
 _onetime_timestampsStr = {}
 # Global variable to store measured sizes
 _bandwidth = {}
-# One-time bandwidth, such as public and evaluation keys.
+# One-time serialized artifacts measured before the per-run evaluation loop.
 _onetime_bandwidth = {}
 # Global variable to store model quality metrics
 _model_quality = {}
@@ -119,29 +119,6 @@ def log_size(path: Path, object_name: str):
     print("         [harness]", object_name, "size:", human_readable_size(size))
     _bandwidth[object_name] = human_readable_size(size)
     return size
-
-
-def log_submission_reported(iodir: Path):
-    """Record optional, submission-defined artifact sizes via a generic schema."""
-    global _bandwidth
-    path = iodir / "submission_reported.json"
-    if not path.exists():
-        return
-    try:
-        reported = json.loads(path.read_text())
-        bandwidth = reported.get("Bandwidth", {})
-        if not isinstance(bandwidth, dict):
-            raise ValueError("Bandwidth must be an object")
-        for name, byte_count in bandwidth.items():
-            if not isinstance(name, str) or not isinstance(byte_count, int):
-                raise ValueError("Bandwidth entries must map strings to integer bytes")
-            if byte_count < 0:
-                raise ValueError("Bandwidth byte counts must be non-negative")
-            value = human_readable_size(byte_count)
-            _bandwidth[name] = value
-            print(f"         [submission] {name} size: {value}")
-    except (json.JSONDecodeError, OSError, ValueError) as exc:
-        raise ValueError(f"Invalid submission report {path}: {exc}") from exc
 
 
 def submission_command(base, file_name, *args):

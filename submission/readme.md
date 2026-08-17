@@ -111,6 +111,11 @@ identity is recorded separately by harness stage 1 in
 dataset. Client/server ciphertext exchange uses Orion's non-executable HDF5
 format rather than pickle.
 
+The harness reports the complete size of `io/server_data/` as `Packed model
+weights`. Consequently, every Orion cache key left in this directory contributes
+to the measurement; obsolete caches should be removed before a benchmark run
+unless they are intentionally part of the deployed server model.
+
 ---
 
 ## 3. CKKS parameters and 128-bit security
