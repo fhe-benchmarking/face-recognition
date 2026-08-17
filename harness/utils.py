@@ -121,44 +121,6 @@ def log_size(path: Path, object_name: str):
     return size
 
 
-def log_server_data_size(path: Path):
-    """Record all regular-file payload bytes in the server-data directory."""
-    global _bandwidth
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Required packed-model directory does not exist: {path}"
-        )
-    if not path.is_dir():
-        raise NotADirectoryError(
-            f"Packed-model path must be a directory: {path}"
-        )
-
-    size = 0
-    pending = [path]
-    while pending:
-        directory = pending.pop()
-        for artifact in directory.iterdir():
-            if artifact.is_symlink():
-                raise ValueError(
-                    f"Packed-model directory must not contain symbolic links: {artifact}"
-                )
-            if artifact.is_dir():
-                pending.append(artifact)
-            elif artifact.is_file():
-                size += artifact.stat().st_size
-            else:
-                raise ValueError(
-                    "Packed-model directory must contain only regular files and "
-                    f"directories: {artifact}"
-                )
-
-    object_name = "Packed model weights"
-    value = human_readable_size(size)
-    print("         [harness]", object_name, "size:", value)
-    _bandwidth[object_name] = value
-    return size
-
 def submission_command(base, file_name, *args):
     """Resolve a Python or compiled submission stage into an argv list."""
     py = base / f"{file_name}.py"

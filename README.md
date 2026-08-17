@@ -182,13 +182,10 @@ and encrypted results may cross the client/server boundary.
 `io/server_data/` is the backend-neutral boundary for persistent server-side
 model artifacts. Stage 3 must create this directory and place every serialized
 artifact required by encrypted inference beneath it. The harness recursively
-measures all regular files in the directory as `Packed model weights`; file
-names, formats, and nesting are chosen by the submission provider. All retained
-content is counted, including auxiliary tables, manifests, and multiple cache
-entries, so providers are responsible for removing stale or unrelated data.
-Symbolic links and other special files are rejected to keep measurements
-self-contained and reproducible. An intentionally empty model directory is
-valid and is reported as `0.0B`, but a missing directory is a contract error.
+measures the complete directory as `Packed model weights`; file names, formats,
+and nesting are chosen by the submission provider. All retained content is
+counted, including auxiliary tables, manifests, and multiple cache entries, so
+providers are responsible for removing stale or unrelated data.
 
 The stage-4 HDF5 input contains equally sized `image0` and `image1`
 variable-length `uint8` datasets. Each element is an encoded RGB image, and
